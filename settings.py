@@ -1516,10 +1516,6 @@ class SettingsDialog(QDialog):
             language_manager.get("restart"), QMessageBox.ButtonRole.AcceptRole
         )
 
-        message_box.addButton(
-            language_manager.get("cancel"), QMessageBox.ButtonRole.RejectRole
-        )
-
         message_box.exec()
 
         # =====================================================
@@ -1586,20 +1582,12 @@ class SettingsDialog(QDialog):
         self.settings.sync()
 
         # =====================================================
-        # СЪОБЩЕНИЕ ЗА РЕСТАРТ + ЗВУК
+        # СЪОБЩЕНИЕ ЗА РЕСТАРТ
         # =====================================================
 
-        try:
-
-            import winsound
-
-            winsound.MessageBeep(winsound.MB_OK)
-
-        except Exception:
-
-            pass
-
         message_box = QMessageBox(self)
+
+        message_box.setStandardButtons(QMessageBox.StandardButton.NoButton)
 
         message_box.setWindowFlag(
             Qt.WindowType.WindowCloseButtonHint,
@@ -1608,7 +1596,7 @@ class SettingsDialog(QDialog):
 
         message_box.setStyleSheet("QLabel { font-size: 20px; }")
 
-        message_box.setWindowTitle(language_manager.get("language_title"))
+        message_box.setWindowTitle(language_manager.get("autosave_title"))
 
         message_box.setText(language_manager.get("autosave_restart_message"))
 
@@ -1623,7 +1611,30 @@ class SettingsDialog(QDialog):
 
         restart_button.setFocus()
 
+        def block_close(event):
+
+            event.ignore()
+
+        message_box.closeEvent = block_close
+
         message_box.exec()
+
+        # =====================================================
+        # РЕСТАРТИРАНЕ
+        # =====================================================
+
+        if message_box.clickedButton() == restart_button:
+
+            import sys
+            import subprocess
+
+            subprocess.Popen([sys.executable] + sys.argv)
+
+            app = QApplication.instance()
+
+            if app is not None:
+
+                app.quit()
 
         # =====================================================
         # РЕСТАРТИРАНЕ
