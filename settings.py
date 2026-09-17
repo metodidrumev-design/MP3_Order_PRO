@@ -1601,6 +1601,11 @@ class SettingsDialog(QDialog):
 
         message_box = QMessageBox(self)
 
+        message_box.setWindowFlag(
+            Qt.WindowType.WindowCloseButtonHint,
+            False,
+        )
+
         message_box.setStyleSheet("QLabel { font-size: 20px; }")
 
         message_box.setWindowTitle(language_manager.get("language_title"))
@@ -1612,12 +1617,9 @@ class SettingsDialog(QDialog):
             QMessageBox.ButtonRole.AcceptRole,
         )
 
-        message_box.addButton(
-            language_manager.get("cancel"),
-            QMessageBox.ButtonRole.RejectRole,
-        )
-
         message_box.setDefaultButton(restart_button)
+
+        message_box.setEscapeButton(restart_button)
 
         restart_button.setFocus()
 
