@@ -1314,6 +1314,7 @@ class AudioConverter(QDialog):
         main_layout.addLayout(output_layout)
 
         self.status_label = QLabel(language_manager.get("converter_ready"))
+        self.status_label.hide()
 
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -1327,6 +1328,7 @@ class AudioConverter(QDialog):
         )
 
         self.progress_bar.setValue(0)
+        self.progress_bar.hide()
 
         main_layout.addWidget(self.progress_bar)
 
@@ -2122,6 +2124,7 @@ class AudioConverter(QDialog):
         self.stop_event.clear()
 
         self.progress_bar.setValue(0)
+        self.progress_bar.show()
 
         self.convert_button.setEnabled(False)
 
@@ -2236,6 +2239,7 @@ class AudioConverter(QDialog):
         if success:
 
             self.progress_bar.setValue(100)
+            self.progress_bar.hide()
 
             self.status_label.setText(language_manager.get("converter_success_status"))
 
