@@ -65,6 +65,7 @@ from mutagen.id3 import ID3
 import vlc
 
 from audio_splitter import AudioSplitter
+from audio_converter import AudioConverter
 from accessibility import AccessibilityManager
 from accessibility_ui import AccessibilityUI
 from language_manager import language_manager
@@ -819,6 +820,19 @@ class MP3Order(QWidget):
         splitter_action.triggered.connect(self.open_audio_splitter)
 
         menu_bar.addAction(splitter_action)
+
+        # =====================================================
+        # КОНВЕРТОР
+        # =====================================================
+
+        converter_action = QAction(
+            language_manager.get("converter"),
+            self,
+        )
+
+        converter_action.triggered.connect(self.open_audio_converter)
+
+        menu_bar.addAction(converter_action)
 
         # =====================================================
         # ЗАПАЗВАМЕ MENU BAR
@@ -3977,6 +3991,22 @@ class MP3Order(QWidget):
 
         self.audio_splitter.show()
 
+    def open_audio_converter(self):
+
+        self.audio_converter = AudioConverter(self)
+
+        self.audio_converter.setWindowModality(Qt.WindowModality.ApplicationModal)
+
+        self.audio_converter.setModal(True)
+
+        self.audio_converter.show()
+
+        self.audio_converter.raise_()
+
+        self.audio_converter.activateWindow()
+
+        self.audio_converter.url_input.setFocus()
+
     # =====================================================
     # ВРЪЩАМЕ AUDIO SPLITTER НА ФОКУС ПРИ ВЪЗСТАНОВЯВАНЕ
     # =====================================================
@@ -4331,10 +4361,6 @@ class MP3Order(QWidget):
 
         QApplication.processEvents()
 
-        # ===== ОСТАВА ВИДИМА ПОНЕ 1 СЕКУНДА =====
-
-        QTimer.singleShot(1000, self.loading_overlay.hide)
-
     def add_folder(self):
 
         folder = QFileDialog.getExistingDirectory(
@@ -4372,7 +4398,6 @@ class MP3Order(QWidget):
 
         if duplicate:
 
-            # Звук при появяване на съобщението
             QApplication.beep()
 
             msg = QMessageBox(self)
@@ -4386,11 +4411,13 @@ class MP3Order(QWidget):
             msg.setIcon(QMessageBox.Icon.Question)
 
             yes = msg.addButton(
-                self.language_manager.get("yes"), QMessageBox.ButtonRole.YesRole
+                self.language_manager.get("yes"),
+                QMessageBox.ButtonRole.YesRole,
             )
 
             no = msg.addButton(
-                self.language_manager.get("no"), QMessageBox.ButtonRole.NoRole
+                self.language_manager.get("no"),
+                QMessageBox.ButtonRole.NoRole,
             )
 
             msg.setDefaultButton(no)
@@ -4406,59 +4433,68 @@ class MP3Order(QWidget):
             # Премахваме старите песни от тази папка
             songs[:] = [path for path in songs if not path.startswith(folder + os.sep)]
 
-            # ===== ПОКАЗВАМЕ ЛЕНТАТА =====
+        # ===== ПОКАЗВАМЕ ЛЕНТАТА =====
 
-            total_files = len(folder_mp3_files)
+        total_files = len(folder_mp3_files)
 
-            self.loading_progress.setRange(0, total_files)
+        self.loading_progress.setRange(
+            0,
+            total_files,
+        )
 
-            self.loading_progress.setValue(0)
+        self.loading_progress.setValue(0)
+
+        self.loading_label.setText(
+            self.language_manager.get(
+                "loading_folder_progress",
+                current=str(0),
+                total=str(total_files),
+            )
+        )
+
+        # Центрираме панела
+
+        x = (self.width() - self.loading_overlay.width()) // 2
+
+        y = (self.height() - self.loading_overlay.height()) // 2
+
+        self.loading_overlay.move(x, y)
+
+        self.loading_overlay.show()
+
+        self.loading_overlay.raise_()
+
+        QApplication.processEvents()
+
+        # ===== ЗАРЕЖДАМЕ ПЕСНИТЕ =====
+
+        for index, path in enumerate(
+            folder_mp3_files,
+            start=1,
+        ):
+
+            if path not in songs:
+
+                songs.append(path)
+
+            self.loading_progress.setValue(index)
 
             self.loading_label.setText(
                 self.language_manager.get(
                     "loading_folder_progress",
-                    current=str(0),
+                    current=str(index),
                     total=str(total_files),
                 )
             )
 
-            # Центрираме панела
-            x = (self.width() - self.loading_overlay.width()) // 2
-
-            y = (self.height() - self.loading_overlay.height()) // 2
-
-            self.loading_overlay.move(x, y)
-
-            self.loading_overlay.show()
-            self.loading_overlay.raise_()
-
             QApplication.processEvents()
-
-            # ===== ЗАРЕЖДАМЕ ПЕСНИТЕ =====
-
-            for index, path in enumerate(folder_mp3_files, start=1):
-
-                if path not in songs:
-
-                    songs.append(path)
-
-                self.loading_progress.setValue(index)
-
-                self.loading_label.setText(
-                    self.language_manager.get(
-                        "loading_folder_progress",
-                        current=str(index),
-                        total=str(total_files),
-                    )
-                )
-
-                QApplication.processEvents()
 
         # ===== ОБНОВЯВАМЕ ТАБЛИЦАТА =====
 
         self.refresh()
 
         # Връщаме фокуса към таблицата
+
         if songs:
 
             current_row = self.table.currentRow()
@@ -4469,11 +4505,15 @@ class MP3Order(QWidget):
 
             self.table.selectRow(current_row)
 
-            self.table.setCurrentCell(current_row, 1)
+            self.table.setCurrentCell(
+                current_row,
+                1,
+            )
 
             self.table.setFocus(Qt.FocusReason.OtherFocusReason)
 
         # Показваме завършеното състояние
+
         self.loading_progress.setValue(total_files)
 
         self.loading_label.setText(
@@ -4487,7 +4527,10 @@ class MP3Order(QWidget):
 
         # ===== ОСТАВА ВИДИМА ПОНЕ 1 СЕКУНДА =====
 
-        QTimer.singleShot(1000, self.loading_overlay.hide)
+        QTimer.singleShot(
+            1000,
+            self.loading_overlay.hide,
+        )
 
     def move_row(self, from_row, to_row):
 

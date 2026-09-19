@@ -860,6 +860,229 @@ class LanguageManager:
                 "en": "You must analyze the file first.",
             },
             # ==================================================
+            # КОНВЕРТОР
+            # ==================================================
+            "converter": {
+                "bg": "🎵 Конвертор",
+                "en": "🎵 Converter",
+            },
+            "converter_title": {
+                "bg": "MP3_Order PRO - Конвертор",
+                "en": "MP3_Order PRO - Converter",
+            },
+            "converter_header": {
+                "bg": "🎵 Аудио Конвертор",
+                "en": "🎵 Audio Converter",
+            },
+            "converter_url_placeholder": {
+                "bg": "🔗 Постави линк към аудио...",
+                "en": "🔗 Paste audio link...",
+            },
+            "converter_add_url": {
+                "bg": "🔗 Добави линк",
+                "en": "🔗 Add Link",
+            },
+            "converter_add_files": {
+                "bg": "📁 Добави файлове",
+                "en": "📁 Add Files",
+            },
+            "converter_remove": {
+                "bg": "➖ Премахни линк",
+                "en": "➖ Remove Link",
+            },
+            "converter_clear": {
+                "bg": "🗑 Изчисти",
+                "en": "🗑 Clear",
+            },
+            "converter_format": {
+                "bg": "Формат:",
+                "en": "Format:",
+            },
+            "converter_quality": {
+                "bg": "Качество:",
+                "en": "Quality:",
+            },
+            "converter_output_placeholder": {
+                "bg": "Избери папка за запис...",
+                "en": "Choose output folder...",
+            },
+            "converter_folder": {
+                "bg": "📁 Папка",
+                "en": "📁 Folder",
+            },
+            "converter_ready": {
+                "bg": "Готово.",
+                "en": "Ready.",
+            },
+            "converter_convert": {
+                "bg": "🔄 Конвертирай",
+                "en": "🔄 Convert",
+            },
+            "converter_stop": {
+                "bg": "⛔ Спри",
+                "en": "⛔ Stop",
+            },
+            "converter_missing_link_title": {
+                "bg": "Липсва линк",
+                "en": "Missing Link",
+            },
+            "converter_missing_link": {
+                "bg": "Моля, добавете линк.",
+                "en": "Please add a link.",
+            },
+            "converter_invalid_link_title": {
+                "bg": "Невалиден линк",
+                "en": "Invalid Link",
+            },
+            "converter_invalid_link": {
+                "bg": "Моля, поставете валиден http или https линк.",
+                "en": "Please enter a valid http or https link.",
+            },
+            "converter_duplicate_link_title": {
+                "bg": "Линкът вече е добавен",
+                "en": "Link Already Added",
+            },
+            "converter_duplicate_link": {
+                "bg": "Този линк вече е поставен в списъка.",
+                "en": "This link has already been added to the list.",
+            },
+            "converter_delete_selected_link": {
+                "bg": "Искате ли да изтриете избрания линк?",
+                "en": "Do you want to delete the selected link?",
+            },
+            "converter_delete_selected_file": {
+                "bg": "Искате ли да изтриете избрания файл?",
+                "en": "Do you want to delete the selected file?",
+            },
+            "converter_delete_selected_links": {
+                "bg": "Искате ли да изтриете избраните {count} линка?",
+                "en": "Do you want to delete the selected {count} links?",
+            },
+            "converter_delete_all_links": {
+                "bg": "Искате ли да изтриете всички линкове?",
+                "en": "Do you want to delete all links?",
+            },
+            "converter_delete_selected_items": {
+                "bg": "Искате ли да изтриете избраните {count} елемента?",
+                "en": "Do you want to delete the selected {count} items?",
+            },
+            "converter_clear_message": {
+                "bg": "Искате ли да изтриете всички добавени линкове и файлове?",
+                "en": "Do you want to delete all added links and files?",
+            },
+            "converter_output_folder_title": {
+                "bg": "Избери папка за запис",
+                "en": "Choose Output Folder",
+            },
+            "converter_audio_filter": {
+                "bg": "Аудио файлове (*.mp3 *.wav *.flac *.aac *.m4a *.ogg *.opus *.wma)",
+                "en": "Audio Files (*.mp3 *.wav *.flac *.aac *.m4a *.ogg *.opus *.wma)",
+            },
+            "converter_all_files": {
+                "bg": "Всички файлове (*.*)",
+                "en": "All Files (*.*)",
+            },
+            "converter_prepare": {
+                "bg": "Подготовка...",
+                "en": "Preparing...",
+            },
+            "converter_processing": {
+                "bg": "Обработва се {current} от {total}: {name}",
+                "en": "Processing {current} of {total}: {name}",
+            },
+            "converter_downloading": {
+                "bg": "Изтегляне:\n{url}",
+                "en": "Downloading:\n{url}",
+            },
+            "converter_converting": {
+                "bg": "Конвертиране:\n{name}",
+                "en": "Converting:\n{name}",
+            },
+            "converter_no_downloaded_file": {
+                "bg": "Не беше намерен изтеглен аудио файл.",
+                "en": "No downloaded audio file was found.",
+            },
+            "converter_missing_yt_dlp": {
+                "bg": (
+                    "Липсва библиотеката yt-dlp.\n\n"
+                    "Инсталирай я с:\n"
+                    "python -m pip install yt-dlp"
+                ),
+                "en": (
+                    "The yt-dlp library is missing.\n\n"
+                    "Install it with:\n"
+                    "python -m pip install yt-dlp"
+                ),
+            },
+            "converter_ffmpeg_output_error": {
+                "bg": "FFmpeg не предостави изходен поток.",
+                "en": "FFmpeg did not provide an output stream.",
+            },
+            "converter_ffmpeg_failed": {
+                "bg": "FFmpeg не успя да конвертира файла.",
+                "en": "FFmpeg failed to convert the file.",
+            },
+            "converter_stopped": {
+                "bg": "Операцията беше спряна.",
+                "en": "The operation was stopped.",
+            },
+            "converter_status_stopping": {
+                "bg": "Спиране...",
+                "en": "Stopping...",
+            },
+            "converter_stop_confirmation": {
+                "bg": "Искате ли да спрете изтеглянето?",
+                "en": "Do you want to stop the download?",
+            },
+            "converter_operation_error": {
+                "bg": "Възникна грешка:\n{error}",
+                "en": "An error occurred:\n{error}",
+            },
+            "converter_no_ffmpeg_title": {
+                "bg": "Липсва FFmpeg",
+                "en": "FFmpeg Missing",
+            },
+            "converter_no_ffmpeg": {
+                "bg": "Не е намерен FFmpeg.",
+                "en": "FFmpeg was not found.",
+            },
+            "converter_no_sources_title": {
+                "bg": "Няма файлове",
+                "en": "No Files",
+            },
+            "converter_no_sources": {
+                "bg": "Добави файл или линк.",
+                "en": "Add a file or link.",
+            },
+            "converter_no_output_title": {
+                "bg": "Липсва папка",
+                "en": "Output Folder Missing",
+            },
+            "converter_no_output": {
+                "bg": "Избери папка за запис.",
+                "en": "Choose an output folder.",
+            },
+            "converter_invalid_output_title": {
+                "bg": "Невалидна папка",
+                "en": "Invalid Folder",
+            },
+            "converter_invalid_output": {
+                "bg": "Избраната папка не съществува.",
+                "en": "The selected folder does not exist.",
+            },
+            "converter_success_title": {
+                "bg": "MP3_Order PRO",
+                "en": "MP3_Order PRO",
+            },
+            "converter_success": {
+                "bg": "Конвертирането на файловете завърши успешно!",
+                "en": "File conversion completed successfully!",
+            },
+            "converter_success_status": {
+                "bg": "✅ Конвертирането завърши успешно.",
+                "en": "✅ Conversion completed successfully.",
+            },
+            # ==================================================
             # ОБЩИ
             # ==================================================
             "yes": {
@@ -895,11 +1118,15 @@ class LanguageManager:
         if translation is None:
             return key
 
-        text = translation.get(self.current_language, translation.get("bg", key))
+        text = translation.get(
+            self.current_language,
+            translation.get("bg", key),
+        )
 
         if kwargs:
 
             try:
+
                 text = text.format(**kwargs)
 
             except Exception:
@@ -920,7 +1147,10 @@ class LanguageManager:
 
         self.current_language = language_code
 
-        self.settings.setValue("language", self.current_language)
+        self.settings.setValue(
+            "language",
+            self.current_language,
+        )
 
         self.settings.sync()
 
@@ -950,7 +1180,10 @@ class LanguageManager:
 
     def get_language_name(self) -> str:
 
-        return self.languages.get(self.current_language, self.languages["bg"])
+        return self.languages.get(
+            self.current_language,
+            self.languages["bg"],
+        )
 
     # ========================================================
     # ВСИЧКИ ЕЗИЦИ

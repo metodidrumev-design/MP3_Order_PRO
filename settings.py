@@ -1516,6 +1516,8 @@ class SettingsDialog(QDialog):
             language_manager.get("restart"), QMessageBox.ButtonRole.AcceptRole
         )
 
+        QApplication.beep()
+
         message_box.exec()
 
         # =====================================================
@@ -1582,6 +1584,20 @@ class SettingsDialog(QDialog):
         self.settings.sync()
 
         # =====================================================
+        # ЗВУК
+        # =====================================================
+
+        try:
+
+            import winsound
+
+            winsound.MessageBeep(winsound.MB_OK)
+
+        except Exception:
+
+            pass
+
+        # =====================================================
         # СЪОБЩЕНИЕ ЗА РЕСТАРТ
         # =====================================================
 
@@ -1618,23 +1634,6 @@ class SettingsDialog(QDialog):
         message_box.closeEvent = block_close
 
         message_box.exec()
-
-        # =====================================================
-        # РЕСТАРТИРАНЕ
-        # =====================================================
-
-        if message_box.clickedButton() == restart_button:
-
-            import sys
-            import subprocess
-
-            subprocess.Popen([sys.executable] + sys.argv)
-
-            app = QApplication.instance()
-
-            if app is not None:
-
-                app.quit()
 
         # =====================================================
         # РЕСТАРТИРАНЕ
