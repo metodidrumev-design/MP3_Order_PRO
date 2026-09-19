@@ -8,6 +8,7 @@ import ctypes
 import shutil
 import re
 import threading
+import tempfile
 
 from typing import cast
 
@@ -69,7 +70,13 @@ from audio_converter import AudioConverter
 from accessibility import AccessibilityManager
 from accessibility_ui import AccessibilityUI
 from language_manager import language_manager
-from updater import check_for_update
+
+
+from updater import (
+    check_for_update,
+    download_update,
+    apply_update,
+)
 
 # =================
 # Край на imports
@@ -835,6 +842,17 @@ class MP3Order(QWidget):
         menu_bar.addAction(converter_action)
 
         # =====================================================
+        # ПРОВЕРКА ЗА НОВИ ОБНОВЛЕНИЯ
+        # =====================================================
+
+        update_action = QAction(
+            language_manager.get("check_for_updates"),
+            self,
+        )
+
+        update_action.triggered.connect(self._manual_check_for_update)
+
+        # =====================================================
         # ЗАПАЗВАМЕ MENU BAR
         # =====================================================
 
@@ -1174,6 +1192,10 @@ class MP3Order(QWidget):
 
         search_layout.addWidget(self.search_edit)
 
+        search_layout.addSpacing(15)
+
+        search_layout.addSpacing(15)
+
         search_layout.addWidget(self.search_button)
 
         right_panel.addLayout(search_layout)
@@ -1237,6 +1259,19 @@ class MP3Order(QWidget):
         right_panel.addWidget(self.drop_label)
 
         right_panel.addWidget(self.table, 1)
+        right_panel.addSpacing(20)
+
+        update_button = QPushButton(language_manager.get("check_for_updates"))
+
+        update_button.setStyleSheet("font-size: 18px;")
+
+        update_button.clicked.connect(update_action.trigger)
+
+        right_panel.addWidget(
+            update_button,
+            0,
+            Qt.AlignmentFlag.AlignRight,
+        )
 
         # ===== ПАНЕЛ ЗА УПРАВЛЕНИЕ =====
 
@@ -5265,6 +5300,16 @@ class MP3Order(QWidget):
 
         if self._pending_update is None:
 
+            if getattr(self, "_manual_update_check", False):
+
+                self._manual_update_check = False
+
+                QMessageBox.information(
+                    self,
+                    language_manager.get("information"),
+                    language_manager.get("no_updates"),
+                )
+
             return
 
         update_info = self._pending_update
@@ -5299,7 +5344,35 @@ class MP3Order(QWidget):
 
         if message_box.clickedButton() is update_button:
 
-            pass
+            try:
+
+                update_file = os.path.join(
+                    tempfile.gettempdir(),
+                    "MP3_Order_PRO_Update.exe",
+                )
+
+                download_update(
+                    update_info,
+                    update_file,
+                )
+
+                QMessageBox.information(
+                    self,
+                    language_manager.get("update_available_title"),
+                    "Обновяването е изтеглено и програмата ще се рестартира.",
+                )
+
+                os.startfile(update_file)
+
+                QApplication.quit()
+
+            except Exception as error:
+
+                QMessageBox.critical(
+                    self,
+                    "MP3_Order",
+                    f"Грешка при обновяването:\n{error}",
+                )
 
     # =========================================================
     # ПРОВЕРКА ЗА ОБНОВЯВАНЕ ВЪВ ФОНОВ РЕЖИМ
@@ -5308,6 +5381,24 @@ class MP3Order(QWidget):
     def _check_for_update_background(self):
 
         self._pending_update = check_for_update()
+
+    def _manual_check_for_update(self):
+
+        self._manual_update_check = True
+
+        self._pending_update = None
+
+        self._update_thread = threading.Thread(
+            target=self._check_for_update_background,
+            daemon=True,
+        )
+
+        self._update_thread.start()
+
+        QTimer.singleShot(
+            100,
+            self._check_update_result,
+        )
 
     # =========================================================
     # ЗАТВАРЯНЕ
@@ -5979,10 +6070,190 @@ class MP3Order(QWidget):
 app = QApplication(sys.argv)
 
 
-window = MP3Order()
+# =====================================================
+# SPLASH SCREEN
+# =====================================================
+
+splash = QWidget()
+
+splash.setWindowFlags(
+    Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
+)
+
+splash.setFixedSize(500, 330)
+
+splash.setStyleSheet("""
+    QWidget {
+        background: #202124;
+        border: 2px solid #666666;
+        border-radius: 16px;
+    }
+
+    QProgressBar {
+        background: #303134;
+        border: 1px solid #666666;
+        border-radius: 8px;
+        height: 18px;
+        text-align: center;
+    }
+
+    QProgressBar::chunk {
+        background: #7C4DFF;
+        border-radius: 7px;
+    }
+""")
 
 
-window.show()
+splash_layout = QVBoxLayout(splash)
+
+splash_layout.setContentsMargins(
+    30,
+    30,
+    30,
+    30,
+)
+
+splash_layout.setSpacing(20)
+
+
+# ===== ЛОГО =====
+
+splash_logo = QLabel()
+
+splash_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+logo_pixmap = QPixmap(LOGO_PATH)
+
+if not logo_pixmap.isNull():
+
+    splash_logo.setPixmap(
+        logo_pixmap.scaled(
+            230,
+            230,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+    )
+
+
+splash_layout.addWidget(
+    splash_logo,
+    1,
+)
+# ===== НАДПИС ЗА ЗАРЕЖДАНЕ =====
+
+splash_loading = QLabel(language_manager.get("loading"))
+
+splash_loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+splash_loading.setStyleSheet("""
+    QLabel {
+        color: white;
+        font-size: 18px;
+        font-weight: bold;
+        background: transparent;
+        border: none;
+    }
+""")
+
+splash_layout.addWidget(splash_loading)
+
+# ===== ПРОГРЕС =====
+
+splash_progress = QProgressBar()
+
+splash_progress.setRange(
+    0,
+    100,
+)
+
+splash_progress.setValue(0)
+
+splash_progress.setTextVisible(True)
+
+splash_layout.addWidget(splash_progress)
+
+
+# ===== ЦЕНТРИРАМЕ SPLASH =====
+
+screen = QApplication.primaryScreen()
+
+if screen is not None:
+
+    screen_geometry = screen.availableGeometry()
+
+    splash_geometry = splash.frameGeometry()
+
+    splash_geometry.moveCenter(screen_geometry.center())
+
+    splash.move(splash_geometry.topLeft())
+
+
+splash.show()
+
+app.processEvents()
+
+
+# =====================================================
+# ЗАРЕЖДАНЕ НА ПРОГРАМАТА
+# =====================================================
+
+
+def start_program():
+
+    global window
+
+    splash_progress.setValue(0)
+
+    app.processEvents()
+
+    progress_value = {
+        "value": 0,
+    }
+
+    def finish_loading():
+
+        global window
+
+        window = MP3Order()
+
+        window.hide()
+
+        splash_progress.setValue(100)
+
+        app.processEvents()
+
+        window.show()
+
+        splash.close()
+
+    def update_splash_progress():
+
+        progress_value["value"] += 1
+
+        splash_progress.setValue(progress_value["value"])
+
+        app.processEvents()
+
+        if progress_value["value"] >= 95:
+
+            splash_timer.stop()
+
+            finish_loading()
+
+    splash_timer = QTimer()
+
+    splash_timer.setInterval(60)
+
+    splash_timer.timeout.connect(update_splash_progress)
+
+    splash_timer.start()
+
+
+QTimer.singleShot(
+    100,
+    start_program,
+)
 
 
 sys.exit(app.exec())

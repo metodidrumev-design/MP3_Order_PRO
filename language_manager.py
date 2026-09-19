@@ -74,6 +74,18 @@ class LanguageManager:
                 "bg": "🎵 Разделяне на MP3",
                 "en": "🎵 Split MP3",
             },
+            "check_for_updates": {
+                "bg": "Проверка за нови обновления",
+                "en": "Check for Updates",
+            },
+            "no_updates": {
+                "bg": "В момента няма нови обновления.",
+                "en": "There are currently no new updates.",
+            },
+            "loading": {
+                "bg": "Зареждане...",
+                "en": "Loading...",
+            },
             # ==================================================
             # ТАБЛИЦА
             # ==================================================
