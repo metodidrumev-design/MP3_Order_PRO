@@ -7,6 +7,7 @@ import sys
 import ctypes
 
 import subprocess
+from typing import cast
 
 import tempfile
 
@@ -85,6 +86,12 @@ class ClickablePlotWidget(pg.PlotWidget):
         self.selection_region = None
 
         self.dragging_edge = None
+
+        self.mouse_press_x = None
+        self.mouse_press_pos = None
+        self.potential_mouse_drag = False
+
+        self.last_click_x = 0.0
 
     def get_view_box(self):
 
@@ -165,7 +172,10 @@ class ClickablePlotWidget(pg.PlotWidget):
 
                             end = float(end_value)
 
-                        edge_tolerance = max(0.15, self.waveform_duration * 0.003)
+                        edge_tolerance = max(
+                            0.15,
+                            self.waveform_duration * 0.003,
+                        )
 
                         # =================================================
                         # ЛЯВ КРАЙ
@@ -201,17 +211,30 @@ class ClickablePlotWidget(pg.PlotWidget):
 
                     self.selection_start = mouse_x
 
-                    self.update_selection_region(mouse_x, mouse_x)
+                    self.update_selection_region(
+                        mouse_x,
+                        mouse_x,
+                    )
 
                     event.accept()
 
                     return
 
                 # =================================================
-                # ОБИКНОВЕН КЛИК
+                # ОБИКНОВЕН ЛЯВ БУТОН
                 # =================================================
 
-                self.clicked_x.emit(mouse_x)
+                self.mouse_press_x = mouse_x
+
+                self.last_click_x = mouse_x
+
+                self.mouse_press_pos = event.position().toPoint()
+
+                self.potential_mouse_drag = True
+
+                event.accept()
+
+                return
 
         super().mousePressEvent(event)
 
@@ -259,9 +282,17 @@ class ClickablePlotWidget(pg.PlotWidget):
 
             mouse_x = min(mouse_x, end)
 
-            region_item.setRegion((mouse_x, end))
+            region_item.setRegion(
+                (
+                    mouse_x,
+                    end,
+                )
+            )
 
-            self.selection_changed.emit(mouse_x, end)
+            self.selection_changed.emit(
+                mouse_x,
+                end,
+            )
 
             event.accept()
 
@@ -295,11 +326,22 @@ class ClickablePlotWidget(pg.PlotWidget):
 
                 start = float(start_value)
 
-            mouse_x = max(mouse_x, start)
+            mouse_x = max(
+                mouse_x,
+                start,
+            )
 
-            region_item.setRegion((start, mouse_x))
+            region_item.setRegion(
+                (
+                    start,
+                    mouse_x,
+                )
+            )
 
-            self.selection_changed.emit(start, mouse_x)
+            self.selection_changed.emit(
+                start,
+                mouse_x,
+            )
 
             event.accept()
 
@@ -311,11 +353,49 @@ class ClickablePlotWidget(pg.PlotWidget):
 
         if self.selecting:
 
-            self.update_selection_region(self.selection_start, mouse_x)
+            self.update_selection_region(
+                self.selection_start,
+                mouse_x,
+            )
 
             event.accept()
 
             return
+
+        # =====================================================
+        # ОБИКНОВЕН DRAG - НОВА МАРКИРОВКА
+        # =====================================================
+
+        if self.potential_mouse_drag:
+
+            if self.mouse_press_pos is not None:
+
+                current_pos = event.position().toPoint()
+
+                distance = (current_pos - self.mouse_press_pos).manhattanLength()
+
+                if distance >= 5:
+
+                    self.potential_mouse_drag = False
+
+                    self.selecting = True
+
+                    if self.mouse_press_x is not None:
+
+                        self.selection_start = self.mouse_press_x
+
+                        self.update_selection_region(
+                            self.selection_start,
+                            mouse_x,
+                        )
+
+                    event.accept()
+
+                    return
+
+                event.accept()
+
+                return
 
         super().mouseMoveEvent(event)
 
@@ -327,13 +407,43 @@ class ClickablePlotWidget(pg.PlotWidget):
 
         if event.button() == Qt.MouseButton.LeftButton:
 
-            if self.dragging_edge is not None:
+            # =================================================
+            # ОБИКНОВЕН КЛИК
+            # =================================================
 
-                self.dragging_edge = None
+            if self.potential_mouse_drag:
+
+                if self.mouse_press_x is not None:
+
+                    self.clicked_x.emit(self.mouse_press_x)
+
+                self.mouse_press_x = None
+                self.mouse_press_pos = None
+                self.potential_mouse_drag = False
 
                 event.accept()
 
                 return
+
+            # =================================================
+            # КРАЙ НА ДВИЖЕНИЕТО НА КРАЙ
+            # =================================================
+
+            if self.dragging_edge is not None:
+
+                self.dragging_edge = None
+
+                self.mouse_press_x = None
+                self.mouse_press_pos = None
+                self.potential_mouse_drag = False
+
+                event.accept()
+
+                return
+
+            # =================================================
+            # КРАЙ НА НОВАТА МАРКИРОВКА
+            # =================================================
 
             if self.selecting:
 
@@ -341,9 +451,16 @@ class ClickablePlotWidget(pg.PlotWidget):
 
                 if mouse_x is not None:
 
-                    self.update_selection_region(self.selection_start, mouse_x)
+                    self.update_selection_region(
+                        self.selection_start,
+                        mouse_x,
+                    )
 
                 self.selecting = False
+
+                self.mouse_press_x = None
+                self.mouse_press_pos = None
+                self.potential_mouse_drag = False
 
                 event.accept()
 
@@ -357,15 +474,33 @@ class ClickablePlotWidget(pg.PlotWidget):
 
     def update_selection_region(self, start_x, end_x):
 
-        start = min(start_x, end_x)
+        start = min(
+            start_x,
+            end_x,
+        )
 
-        end = max(start_x, end_x)
+        end = max(
+            start_x,
+            end_x,
+        )
 
         if self.waveform_duration > 0:
 
-            start = max(0.0, min(start, self.waveform_duration))
+            start = max(
+                0.0,
+                min(
+                    start,
+                    self.waveform_duration,
+                ),
+            )
 
-            end = max(0.0, min(end, self.waveform_duration))
+            end = max(
+                0.0,
+                min(
+                    end,
+                    self.waveform_duration,
+                ),
+            )
 
         if abs(end - start) < 0.001:
 
@@ -379,13 +514,32 @@ class ClickablePlotWidget(pg.PlotWidget):
 
         if region_item is None:
 
+            current_theme = getattr(
+                self.window(),
+                "current_theme",
+                None,
+            )
+
+            if current_theme is None:
+
+                return
+
             region_item = pg.LinearRegionItem(
-                values=(start, end),
-                movable=False,
-                brush=(lambda c: (c.setAlpha(70), pg.mkBrush(c))[1])(
-                    QColor(self.current_theme["accent"])
+                values=(
+                    start,
+                    end,
                 ),
-                pen=pg.mkPen(self.current_theme["main_text"], width=1),
+                movable=False,
+                brush=(
+                    lambda c: (
+                        c.setAlpha(70),
+                        pg.mkBrush(c),
+                    )[1]
+                )(QColor(current_theme["accent"])),
+                pen=pg.mkPen(
+                    current_theme["main_text"],
+                    width=1,
+                ),
             )
 
             self.selection_region = region_item
@@ -394,9 +548,17 @@ class ClickablePlotWidget(pg.PlotWidget):
 
         else:
 
-            region_item.setRegion((start, end))
+            region_item.setRegion(
+                (
+                    start,
+                    end,
+                )
+            )
 
-        self.selection_changed.emit(start, end)
+        self.selection_changed.emit(
+            start,
+            end,
+        )
 
     # =====================================================
     # СЪЗДАВАМЕ / ОБНОВЯВАМЕ ЗАПАЗЕН СЛОТ
@@ -441,10 +603,8 @@ class ClickablePlotWidget(pg.PlotWidget):
             region_item = pg.LinearRegionItem(
                 values=(start, end),
                 movable=False,
-                brush=(lambda c: (c.setAlpha(45), pg.mkBrush(c))[1])(
-                    QColor(self.current_theme["accent"])
-                ),
-                pen=pg.mkPen(self.current_theme["accent_light"], width=2),
+                brush=pg.mkBrush(140, 80, 220, 45),
+                pen=pg.mkPen("#B388FF", width=2),
             )
 
             self.addItem(region_item)
@@ -673,6 +833,7 @@ class DeleteWorker(QThread):
         filter_complex,
         map_label,
         output_file,
+        trim_start=None,
         parent=None,
     ):
 
@@ -688,9 +849,15 @@ class DeleteWorker(QThread):
 
         self.output_file = output_file
 
+        self.trim_start = trim_start
+
     def run(self):
 
         try:
+
+            # =========================================================
+            # FFMPEG КОМАНДА ЗА ИЗТРИВАНЕ
+            # =========================================================
 
             command = [
                 self.ffmpeg_path,
@@ -723,6 +890,7 @@ class DeleteWorker(QThread):
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
 
             if result.returncode != 0:
@@ -732,7 +900,10 @@ class DeleteWorker(QThread):
                     os.remove(self.output_file)
 
                 self.error.emit(
-                    language_manager.get("delete_worker_error", error=result.stderr)
+                    language_manager.get(
+                        "delete_worker_error",
+                        error=result.stderr,
+                    )
                 )
 
                 return
@@ -752,7 +923,10 @@ class DeleteWorker(QThread):
                     pass
 
             self.error.emit(
-                language_manager.get("delete_worker_exception", error=str(e))
+                language_manager.get(
+                    "delete_worker_exception",
+                    error=str(e),
+                )
             )
 
 
@@ -786,7 +960,13 @@ class AudioDecodeWorker(QThread):
             # НАМИРАМЕ FFMPEG В ПАПКАТА НА ПРОЕКТА
             # =================================================
 
-            project_dir = os.path.dirname(os.path.abspath(__file__))
+            if getattr(sys, "frozen", False):
+
+                project_dir = os.path.dirname(os.path.abspath(sys.executable))
+
+            else:
+
+                project_dir = os.path.dirname(os.path.abspath(__file__))
 
             ffmpeg_path = os.path.join(
                 project_dir, "ffmpeg-n9.0-latest-win64-gpl-9.0", "bin", "ffmpeg.exe"
@@ -883,6 +1063,7 @@ class AudioDecodeWorker(QThread):
                 encoding="utf-8",
                 errors="ignore",
                 bufsize=1,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
 
             # =================================================
@@ -1147,6 +1328,7 @@ class SplitWorker(QThread):
                     encoding="utf-8",
                     errors="ignore",
                     bufsize=1,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
                 )
 
                 current_audio_time = 0.0
@@ -1255,7 +1437,9 @@ class SplitWorker(QThread):
 
                     self.error.emit(
                         language_manager.get(
-                            "split_song_error", index=str(index), error=stderr_text
+                            "split_song_error",
+                            index=str(index),
+                            error=stderr_text,
                         )
                     )
 
@@ -1292,7 +1476,12 @@ class SplitWorker(QThread):
 
         except Exception as e:
 
-            self.error.emit(language_manager.get("split_generic_error", error=str(e)))
+            self.error.emit(
+                language_manager.get(
+                    "split_generic_error",
+                    error=str(e),
+                )
+            )
 
         finally:
 
@@ -1322,7 +1511,17 @@ class SongAnalysisWorker(QThread):
 
         try:
 
-            project_dir = os.path.dirname(os.path.abspath(__file__))
+            # =================================================
+            # НАМИРАМЕ FFMPEG
+            # =================================================
+
+            if getattr(sys, "frozen", False):
+
+                project_dir = os.path.dirname(os.path.abspath(sys.executable))
+
+            else:
+
+                project_dir = os.path.dirname(os.path.abspath(__file__))
 
             ffmpeg_path = os.path.join(
                 project_dir,
@@ -1402,6 +1601,7 @@ class SongAnalysisWorker(QThread):
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
 
             silence_start = None
@@ -1653,10 +1853,37 @@ class AudioSplitter(QDialog):
 
         self.setWindowTitle(language_manager.get("split_title"))
 
+        # =====================================================
+        # ПОЗВОЛЯВАМЕ МИНИМИЗИРАНЕ ОТ БУТОНА НА ПРОЗОРЕЦА
+        # =====================================================
+
+        self.setWindowFlag(
+            Qt.WindowType.WindowMinimizeButtonHint,
+            True,
+        )
+
         from PySide6.QtCore import QSettings
         from themes import set_theme, get_theme
 
         settings = QSettings("MP3_Order", "MP3_Order_PRO")
+
+        # =====================================================
+        # ЗАПАМЕТЕНА ПОЗИЦИЯ НА ПРОЗОРЕЦА
+        # =====================================================
+
+        self.window_settings = settings
+
+        # =====================================================
+        # УПРАВЛЕНИЕ НА БЛОКИРАНЕТО НА ОСНОВНИЯ ПРОЗОРЕЦ
+        # =====================================================
+
+        self._block_parent_input = False
+
+        self._event_filter_installed = False
+
+        self.setWindowModality(
+            Qt.WindowModality.NonModal,
+        )
 
         theme_name = settings.value(
             "theme_name",
@@ -1673,6 +1900,35 @@ class AudioSplitter(QDialog):
         self.setMinimumSize(1100, 700)
 
         self.resize(1100, 750)
+
+        # =====================================================
+        # ВЪЗСТАНОВЯВАМЕ ПОСЛЕДНАТА ПОЗИЦИЯ НА ПРОЗОРЕЦА
+        # =====================================================
+
+        saved_x = cast(
+            int,
+            self.window_settings.value(
+                "splitter_window_x",
+                -1,
+                type=int,
+            ),
+        )
+
+        saved_y = cast(
+            int,
+            self.window_settings.value(
+                "splitter_window_y",
+                -1,
+                type=int,
+            ),
+        )
+
+        if saved_x >= 0 and saved_y >= 0:
+
+            self.move(
+                saved_x,
+                saved_y,
+            )
 
         self.setStyleSheet("""
             QToolTip {
@@ -1733,7 +1989,10 @@ class AudioSplitter(QDialog):
         # CTRL + Z - UNDO
         # =====================================================
 
-        self.undo_shortcut = QShortcut(QKeySequence("Ctrl+Z"), self)
+        self.undo_shortcut = QShortcut(
+            QKeySequence(QKeySequence.StandardKey.Undo),
+            self,
+        )
 
         self.undo_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
 
@@ -1760,7 +2019,10 @@ class AudioSplitter(QDialog):
         # CTRL + A - МАРКИРАМЕ ЦЕЛИЯ ФАЙЛ
         # =====================================================
 
-        self.select_all_shortcut = QShortcut(QKeySequence("Ctrl+A"), self)
+        self.select_all_shortcut = QShortcut(
+            QKeySequence(QKeySequence.StandardKey.SelectAll),
+            self,
+        )
 
         self.select_all_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
 
@@ -1796,17 +2058,27 @@ class AudioSplitter(QDialog):
         # CTRL + LEFT / RIGHT - ПРЕМЕСТВАМЕ МАРКИРОВКАТА
         # =====================================================
 
-        self.selection_move_left_shortcut = QShortcut(QKeySequence("Ctrl+Left"), self)
+        self.selection_move_left_shortcut = QShortcut(
+            QKeySequence(Qt.KeyboardModifier.ControlModifier | Qt.Key.Key_Left),
+            self,
+        )
 
-        self.selection_move_left_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self.selection_move_left_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
 
         self.selection_move_left_shortcut.setAutoRepeat(False)
 
         self.selection_move_left_shortcut.activated.connect(self.move_selection_left)
 
-        self.selection_move_right_shortcut = QShortcut(QKeySequence("Ctrl+Right"), self)
+        self.selection_move_right_shortcut = QShortcut(
+            QKeySequence(Qt.KeyboardModifier.ControlModifier | Qt.Key.Key_Right),
+            self,
+        )
 
-        self.selection_move_right_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self.selection_move_right_shortcut.setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
 
         self.selection_move_right_shortcut.setAutoRepeat(False)
 
@@ -1817,11 +2089,12 @@ class AudioSplitter(QDialog):
         # =====================================================
 
         self.selection_resize_left_shortcut = QShortcut(
-            QKeySequence("Shift+Left"), self
+            QKeySequence(Qt.KeyboardModifier.ShiftModifier | Qt.Key.Key_Left),
+            self,
         )
 
         self.selection_resize_left_shortcut.setContext(
-            Qt.ShortcutContext.WindowShortcut
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
         )
 
         self.selection_resize_left_shortcut.setAutoRepeat(True)
@@ -1831,11 +2104,12 @@ class AudioSplitter(QDialog):
         )
 
         self.selection_resize_right_shortcut = QShortcut(
-            QKeySequence("Shift+Right"), self
+            QKeySequence(Qt.KeyboardModifier.ShiftModifier | Qt.Key.Key_Right),
+            self,
         )
 
         self.selection_resize_right_shortcut.setContext(
-            Qt.ShortcutContext.WindowShortcut
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
         )
 
         self.selection_resize_right_shortcut.setAutoRepeat(True)
@@ -1874,7 +2148,10 @@ class AudioSplitter(QDialog):
         # NUM 0 - ПРЕВКЛЮЧВАМЕ РЕЖИМА НА ТОЧНОСТ
         # =====================================================
 
-        self.selection_precision_shortcut = QShortcut(QKeySequence("Num+0"), self)
+        self.selection_precision_shortcut = QShortcut(
+            QKeySequence(Qt.Key.Key_0),
+            self,
+        )
 
         self.selection_precision_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
 
@@ -1896,7 +2173,7 @@ class AudioSplitter(QDialog):
 
             slot_shortcut = QShortcut(QKeySequence(slot_key), self)
 
-            slot_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            slot_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
 
             slot_shortcut.setAutoRepeat(False)
 
@@ -2018,6 +2295,234 @@ class AudioSplitter(QDialog):
         self.build_ui()
         self.refresh_language_texts()
         self.load_button.setFocus()
+
+    # =====================================================
+    # ФОКУСИРАНЕ НА AUDIO SPLITTER
+    # =====================================================
+
+    def _restore_focus(self):
+
+        if self.isMinimized() or not self.isVisible():
+
+            return
+
+        self.raise_()
+
+        self.activateWindow()
+
+        QApplication.setActiveWindow(self)
+
+        if hasattr(self, "load_button"):
+
+            self.load_button.setFocus(
+                Qt.FocusReason.ActiveWindowFocusReason,
+            )
+
+        else:
+
+            self.setFocus(
+                Qt.FocusReason.ActiveWindowFocusReason,
+            )
+
+    # =====================================================
+    # ПОКАЗВАНЕ = АКТИВИРАМЕ AUDIO SPLITTER
+    # =====================================================
+
+    def showEvent(self, event):
+
+        super().showEvent(event)
+
+        QTimer.singleShot(
+            0,
+            self._activate_splitter,
+        )
+
+    def _activate_splitter(self):
+
+        parent = self.parentWidget()
+
+        # =================================================
+        # ДЪРЖИМ ОСНОВНИЯ ПРОЗОРЕЦ ТЕХНИЧЕСКИ АКТИВЕН
+        # А БЛОКИРАМЕ ВХОДА ЧРЕЗ EVENT FILTER
+        # =================================================
+
+        if parent is not None:
+
+            parent.setEnabled(True)
+
+        self._set_parent_input_blocked(True)
+
+        self._restore_focus()
+
+    # =====================================================
+    # БЛОКИРАМЕ ВХОДА КЪМ ОСНОВНИЯ ПРОЗОРЕЦ
+    # БЕЗ ДА ДЕАКТИВИРАМЕ НЕГОВИЯ ПРОЗОРЕЦ
+    # =====================================================
+
+    def _set_parent_input_blocked(self, blocked):
+
+        self._block_parent_input = blocked
+
+        app = QApplication.instance()
+
+        if app is None:
+
+            return
+
+        if blocked and not self._event_filter_installed:
+
+            app.installEventFilter(self)
+
+            self._event_filter_installed = True
+
+        elif not blocked and self._event_filter_installed:
+
+            app.removeEventFilter(self)
+
+            self._event_filter_installed = False
+
+    # =====================================================
+    # БЛОКИРАМЕ САМО ВХОДА КЪМ ОСНОВНИЯ ПРОЗОРЕЦ
+    # =====================================================
+
+    def eventFilter(self, watched, event):
+
+        if not self._block_parent_input or self.isMinimized():
+
+            return super().eventFilter(watched, event)
+
+        parent = self.parentWidget()
+
+        if parent is None:
+
+            return super().eventFilter(watched, event)
+
+        if isinstance(watched, QWidget):
+
+            parent_window = parent.window()
+
+            watched_window = watched.window()
+
+            if watched_window is parent_window:
+
+                if event.type() in (
+                    QEvent.Type.MouseButtonPress,
+                    QEvent.Type.MouseButtonRelease,
+                    QEvent.Type.MouseButtonDblClick,
+                    QEvent.Type.Wheel,
+                    QEvent.Type.KeyPress,
+                    QEvent.Type.KeyRelease,
+                    QEvent.Type.ShortcutOverride,
+                    QEvent.Type.ContextMenu,
+                    QEvent.Type.InputMethod,
+                ):
+
+                    return True
+
+                if event.type() == QEvent.Type.FocusIn:
+
+                    QTimer.singleShot(
+                        0,
+                        self._restore_focus,
+                    )
+
+                    return True
+
+                if event.type() == QEvent.Type.WindowActivate:
+
+                    QTimer.singleShot(
+                        0,
+                        self._restore_focus,
+                    )
+
+                    return True
+
+        return super().eventFilter(watched, event)
+
+    # =====================================================
+    # ЗАПАЗВАМЕ ПОЗИЦИЯТА ПРИ ПРЕМЕСТВАНЕ НА ПРОЗОРЕЦА
+    # =====================================================
+
+    def moveEvent(self, event):
+
+        super().moveEvent(event)
+
+        if self.isMinimized():
+
+            return
+
+        normal_geometry = self.normalGeometry()
+
+        self.window_settings.setValue(
+            "splitter_window_x",
+            normal_geometry.x(),
+        )
+
+        self.window_settings.setValue(
+            "splitter_window_y",
+            normal_geometry.y(),
+        )
+
+        self.window_settings.sync()
+
+    # =====================================================
+    # МИНИМИЗИРАНЕ = ВРЕМЕННО ОСВОБОЖДАВАМЕ ОСНОВНИЯ ПРОЗОРЕЦ
+    # =====================================================
+
+    def changeEvent(self, event):
+
+        super().changeEvent(event)
+
+        if event.type() != QEvent.Type.WindowStateChange:
+
+            return
+
+        parent = self.parentWidget()
+
+        # =================================================
+        # ПРИ МИНИМИЗИРАНЕ
+        # ОСВОБОЖДАВАМЕ ОСНОВНИЯ ПРОЗОРЕЦ
+        # =================================================
+
+        if self.isMinimized():
+
+            self._set_parent_input_blocked(False)
+
+            normal_geometry = self.normalGeometry()
+
+            self.window_settings.setValue(
+                "splitter_window_x",
+                normal_geometry.x(),
+            )
+
+            self.window_settings.setValue(
+                "splitter_window_y",
+                normal_geometry.y(),
+            )
+
+            self.window_settings.sync()
+
+            if parent is not None:
+
+                parent.setEnabled(True)
+
+            return
+
+        # =================================================
+        # ПРИ ВЪЗСТАНОВЯВАНЕ
+        # ОТНОВО БЛОКИРАМЕ ОСНОВНИЯ ПРОЗОРЕЦ
+        # =================================================
+
+        if parent is not None:
+
+            parent.setEnabled(True)
+
+        self._set_parent_input_blocked(True)
+
+        QTimer.singleShot(
+            150,
+            self._restore_focus,
+        )
 
     # =====================================================
     # ОСНОВЕН UI
@@ -2547,7 +3052,7 @@ class AudioSplitter(QDialog):
         self.waveform_start_label.setStyleSheet("""
             QLabel {
                 color: #AAAAAA;
-                font-size: 12px;
+                font-size: 18px;
                 font-weight: bold;
                 background: transparent;
                 border: none;
@@ -2557,7 +3062,7 @@ class AudioSplitter(QDialog):
         self.waveform_end_label.setStyleSheet("""
             QLabel {
                 color: #AAAAAA;
-                font-size: 12px;
+                font-size: 18px;
                 font-weight: bold;
                 background: transparent;
                 border: none;
@@ -2839,10 +3344,16 @@ class AudioSplitter(QDialog):
         self.close_button.clicked.connect(self.close)
         self.close_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        self.setTabOrder(
-            self.split_button,
-            self.close_button,
-        )
+        # =====================================================
+        # БЕЗОПАСЕН TAB ORDER ЗА БУТОНИТЕ
+        # =====================================================
+
+        if self.split_button.window() is self.close_button.window():
+
+            self.setTabOrder(
+                self.split_button,
+                self.close_button,
+            )
 
         bottom_layout.addStretch()
 
@@ -3889,8 +4400,8 @@ class AudioSplitter(QDialog):
             slot_button.setStyleSheet(f"""
                 QPushButton {{
                     background: {theme["button_bg"]};
-                    color: {theme["play"]};
-                    border: 1px solid {theme["play_pressed"]};
+                    color: #5CFF5C;
+                    border: 2px solid #5CFF5C;
                     border-radius: 6px;
                     font-size: 16px;
                     font-weight: bold;
@@ -3899,7 +4410,8 @@ class AudioSplitter(QDialog):
 
                 QPushButton:hover {{
                     background: {theme["button_bg"]};
-                    color: {theme["play"]};
+                    color: #7FFF7F;
+                    border: 2px solid #7FFF7F;
                 }}
 
                 QPushButton:pressed {{
@@ -4539,10 +5051,19 @@ class AudioSplitter(QDialog):
             # FFmpeg
             # =================================================
 
-            project_dir = os.path.dirname(os.path.abspath(__file__))
+            if getattr(sys, "frozen", False):
+
+                project_dir = os.path.dirname(os.path.abspath(sys.executable))
+
+            else:
+
+                project_dir = os.path.dirname(os.path.abspath(__file__))
 
             ffmpeg_path = os.path.join(
-                project_dir, "ffmpeg-n9.0-latest-win64-gpl-9.0", "bin", "ffmpeg.exe"
+                project_dir,
+                "ffmpeg-n9.0-latest-win64-gpl-9.0",
+                "bin",
+                "ffmpeg.exe",
             )
 
             if not os.path.isfile(ffmpeg_path):
@@ -4715,7 +5236,8 @@ class AudioSplitter(QDialog):
                 filter_complex,
                 map_label,
                 output_file,
-                self,
+                trim_start=end_time if not before_exists else None,
+                parent=self,
             )
 
             # =================================================
@@ -5071,7 +5593,21 @@ class AudioSplitter(QDialog):
 
             return
 
-        project_dir = os.path.dirname(os.path.abspath(__file__))
+        # =====================================================
+        # НАМИРАМЕ ПАПКАТА НА ПРОГРАМАТА
+        # =====================================================
+
+        if getattr(sys, "frozen", False):
+
+            project_dir = os.path.dirname(os.path.abspath(sys.executable))
+
+        else:
+
+            project_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # =====================================================
+        # НАМИРАМЕ FFMPEG
+        # =====================================================
 
         ffmpeg_path = os.path.join(
             project_dir,
@@ -6271,23 +6807,75 @@ class AudioSplitter(QDialog):
 
             if region_item is None:
 
-                if self.vlc_player is None:
+                anchor = 0.0
 
-                    return
+                try:
 
-                current_time_ms = self.vlc_player.get_time()
+                    if self.playback_line is not None:
 
-                if current_time_ms < 0:
+                        anchor_value = self.playback_line.value()
 
-                    return
+                        if isinstance(
+                            anchor_value,
+                            (list, tuple),
+                        ):
 
-                anchor = current_time_ms / 1000.0
+                            anchor = float(anchor_value[0])
 
-                anchor = max(0.0, min(anchor, self.current_duration))
+                        else:
 
-                step = 0.01 if getattr(self, "selection_precision_mode", False) else 5.0
+                            anchor = float(anchor_value)
 
-                new_start = max(0.0, anchor - step)
+                    else:
+
+                        last_click_value = getattr(
+                            self.waveform_plot,
+                            "last_click_x",
+                            0.0,
+                        )
+
+                        if isinstance(
+                            last_click_value,
+                            (list, tuple),
+                        ):
+
+                            anchor = float(last_click_value[0])
+
+                        else:
+
+                            anchor = float(last_click_value)
+
+                except (
+                    AttributeError,
+                    TypeError,
+                    ValueError,
+                    IndexError,
+                ):
+
+                    anchor = 0.0
+
+                anchor = max(
+                    0.0,
+                    min(
+                        anchor,
+                        self.current_duration,
+                    ),
+                )
+
+                step = (
+                    0.01
+                    if getattr(
+                        self,
+                        "selection_precision_mode",
+                        False,
+                    )
+                    else 5.0
+                )
+
+                new_start = max(
+                    0.0,
+                    anchor - step,
+                )
 
                 new_end = anchor
 
@@ -6295,7 +6883,10 @@ class AudioSplitter(QDialog):
 
                     return
 
-                self.waveform_plot.update_selection_region(new_start, new_end)
+                self.waveform_plot.update_selection_region(
+                    new_start,
+                    new_end,
+                )
 
                 self.selection_region = self.waveform_plot.selection_region
 
@@ -6318,7 +6909,10 @@ class AudioSplitter(QDialog):
             start_value = region[0]
             end_value = region[1]
 
-            if isinstance(start_value, (list, tuple)):
+            if isinstance(
+                start_value,
+                (list, tuple),
+            ):
 
                 start = float(start_value[0])
 
@@ -6326,7 +6920,10 @@ class AudioSplitter(QDialog):
 
                 start = float(start_value)
 
-            if isinstance(end_value, (list, tuple)):
+            if isinstance(
+                end_value,
+                (list, tuple),
+            ):
 
                 end = float(end_value[0])
 
@@ -6334,24 +6931,44 @@ class AudioSplitter(QDialog):
 
                 end = float(end_value)
 
-            step = 0.01 if getattr(self, "selection_precision_mode", False) else 5.0
+            step = (
+                0.01
+                if getattr(
+                    self,
+                    "selection_precision_mode",
+                    False,
+                )
+                else 5.0
+            )
 
             # =================================================
             # АКО МАРКИРОВКАТА Е ЗАПОЧНАЛА НАЛЯВО
             # ДВИЖИМ САМО ЛЕВИЯ КРАЙ
             # =================================================
 
-            direction = getattr(self, "_keyboard_selection_direction", None)
+            direction = getattr(
+                self,
+                "_keyboard_selection_direction",
+                None,
+            )
 
             if direction == "left":
 
-                new_start = max(0.0, start - step)
+                new_start = max(
+                    0.0,
+                    start - step,
+                )
 
                 if new_start >= end:
 
                     return
 
-                region_item.setRegion((new_start, end))
+                region_item.setRegion(
+                    (
+                        new_start,
+                        end,
+                    )
+                )
 
                 self.selection_region = region_item
 
@@ -6366,13 +6983,21 @@ class AudioSplitter(QDialog):
             # ВРЪЩАМЕ ДЕСНИЯ КРАЙ НАЗАД
             # =================================================
 
-            new_end = max(start + 0.01, end - step)
+            new_end = max(
+                start + 0.01,
+                end - step,
+            )
 
             if new_end <= start:
 
                 return
 
-            region_item.setRegion((start, new_end))
+            region_item.setRegion(
+                (
+                    start,
+                    new_end,
+                )
+            )
 
             self.selection_region = region_item
 
@@ -6382,7 +7007,10 @@ class AudioSplitter(QDialog):
 
         except Exception as e:
 
-            print("RESIZE SELECTION LEFT ERROR:", e)
+            print(
+                "RESIZE SELECTION LEFT ERROR:",
+                e,
+            )
 
     # =====================================================
     # SHIFT + RIGHT - МАРКИРАМЕ / РАЗШИРЯВАМЕ НАДЯСНО
@@ -6404,31 +7032,86 @@ class AudioSplitter(QDialog):
 
             if region_item is None:
 
-                if self.vlc_player is None:
+                anchor = 0.0
 
-                    return
+                try:
 
-                current_time_ms = self.vlc_player.get_time()
+                    if self.playback_line is not None:
 
-                if current_time_ms < 0:
+                        anchor_value = self.playback_line.value()
 
-                    return
+                        if isinstance(
+                            anchor_value,
+                            (list, tuple),
+                        ):
 
-                anchor = current_time_ms / 1000.0
+                            anchor = float(anchor_value[0])
 
-                anchor = max(0.0, min(anchor, self.current_duration))
+                        else:
 
-                step = 0.01 if getattr(self, "selection_precision_mode", False) else 5.0
+                            anchor = float(anchor_value)
+
+                    else:
+
+                        last_click_value = getattr(
+                            self.waveform_plot,
+                            "last_click_x",
+                            0.0,
+                        )
+
+                        if isinstance(
+                            last_click_value,
+                            (list, tuple),
+                        ):
+
+                            anchor = float(last_click_value[0])
+
+                        else:
+
+                            anchor = float(last_click_value)
+
+                except (
+                    AttributeError,
+                    TypeError,
+                    ValueError,
+                    IndexError,
+                ):
+
+                    anchor = 0.0
+
+                anchor = max(
+                    0.0,
+                    min(
+                        anchor,
+                        self.current_duration,
+                    ),
+                )
+
+                step = (
+                    0.01
+                    if getattr(
+                        self,
+                        "selection_precision_mode",
+                        False,
+                    )
+                    else 5.0
+                )
 
                 new_start = anchor
 
-                new_end = min(self.current_duration, anchor + step)
+                new_end = min(
+                    self.current_duration,
+                    anchor + step,
+                )
 
                 if new_end <= new_start:
 
                     return
 
-                self.waveform_plot.update_selection_region(new_start, new_end)
+                self.waveform_plot.update_selection_region(
+                    new_start,
+                    new_end,
+                )
 
                 self.selection_region = self.waveform_plot.selection_region
 
@@ -6451,7 +7134,10 @@ class AudioSplitter(QDialog):
             start_value = region[0]
             end_value = region[1]
 
-            if isinstance(start_value, (list, tuple)):
+            if isinstance(
+                start_value,
+                (list, tuple),
+            ):
 
                 start = float(start_value[0])
 
@@ -6459,7 +7145,10 @@ class AudioSplitter(QDialog):
 
                 start = float(start_value)
 
-            if isinstance(end_value, (list, tuple)):
+            if isinstance(
+                end_value,
+                (list, tuple),
+            ):
 
                 end = float(end_value[0])
 
@@ -6467,24 +7156,44 @@ class AudioSplitter(QDialog):
 
                 end = float(end_value)
 
-            step = 0.01 if getattr(self, "selection_precision_mode", False) else 5.0
+            step = (
+                0.01
+                if getattr(
+                    self,
+                    "selection_precision_mode",
+                    False,
+                )
+                else 5.0
+            )
 
             # =================================================
             # АКО МАРКИРОВКАТА Е ЗАПОЧНАЛА НАДЯСНО
             # ДВИЖИМ САМО ДЕСНИЯ КРАЙ
             # =================================================
 
-            direction = getattr(self, "_keyboard_selection_direction", None)
+            direction = getattr(
+                self,
+                "_keyboard_selection_direction",
+                None,
+            )
 
             if direction == "right":
 
-                new_end = min(self.current_duration, end + step)
+                new_end = min(
+                    self.current_duration,
+                    end + step,
+                )
 
                 if new_end <= start:
 
                     return
 
-                region_item.setRegion((start, new_end))
+                region_item.setRegion(
+                    (
+                        start,
+                        new_end,
+                    )
+                )
 
                 self.selection_region = region_item
 
@@ -6499,13 +7208,21 @@ class AudioSplitter(QDialog):
             # ВРЪЩАМЕ ЛЕВИЯ КРАЙ НАПРЕД
             # =================================================
 
-            new_start = min(end - 0.01, start + step)
+            new_start = min(
+                end - 0.01,
+                start + step,
+            )
 
             if new_start >= end:
 
                 return
 
-            region_item.setRegion((new_start, end))
+            region_item.setRegion(
+                (
+                    new_start,
+                    end,
+                )
+            )
 
             self.selection_region = region_item
 
@@ -6515,7 +7232,10 @@ class AudioSplitter(QDialog):
 
         except Exception as e:
 
-            print("RESIZE SELECTION RIGHT ERROR:", e)
+            print(
+                "RESIZE SELECTION RIGHT ERROR:",
+                e,
+            )
 
     # =====================================================
     # ALT + LEFT - ДВИЖИМ САМО ДЕСНИЯ КРАЙ НАЗАД
@@ -6540,7 +7260,10 @@ class AudioSplitter(QDialog):
             start_value = region[0]
             end_value = region[1]
 
-            if isinstance(start_value, (list, tuple)):
+            if isinstance(
+                start_value,
+                (list, tuple),
+            ):
 
                 start = float(start_value[0])
 
@@ -6548,7 +7271,10 @@ class AudioSplitter(QDialog):
 
                 start = float(start_value)
 
-            if isinstance(end_value, (list, tuple)):
+            if isinstance(
+                end_value,
+                (list, tuple),
+            ):
 
                 end = float(end_value[0])
 
@@ -6558,13 +7284,21 @@ class AudioSplitter(QDialog):
 
             step = 0.01
 
-            new_end = max(start + 0.01, end - step)
+            new_end = max(
+                start + 0.01,
+                end - step,
+            )
 
             if new_end <= start:
 
                 return
 
-            region_item.setRegion((start, new_end))
+            region_item.setRegion(
+                (
+                    start,
+                    new_end,
+                )
+            )
 
             self.selection_region = region_item
 
@@ -6574,7 +7308,10 @@ class AudioSplitter(QDialog):
 
         except Exception as e:
 
-            print("MOVE RIGHT EDGE LEFT ERROR:", e)
+            print(
+                "MOVE RIGHT EDGE LEFT ERROR:",
+                e,
+            )
 
     # =====================================================
     # ALT + RIGHT - ДВИЖИМ САМО ДЕСНИЯ КРАЙ НАПРЕД
@@ -6599,7 +7336,10 @@ class AudioSplitter(QDialog):
             start_value = region[0]
             end_value = region[1]
 
-            if isinstance(start_value, (list, tuple)):
+            if isinstance(
+                start_value,
+                (list, tuple),
+            ):
 
                 start = float(start_value[0])
 
@@ -6607,7 +7347,10 @@ class AudioSplitter(QDialog):
 
                 start = float(start_value)
 
-            if isinstance(end_value, (list, tuple)):
+            if isinstance(
+                end_value,
+                (list, tuple),
+            ):
 
                 end = float(end_value[0])
 
@@ -6617,13 +7360,21 @@ class AudioSplitter(QDialog):
 
             step = 0.01
 
-            new_end = min(self.current_duration, end + step)
+            new_end = min(
+                self.current_duration,
+                end + step,
+            )
 
             if new_end <= start:
 
                 return
 
-            region_item.setRegion((start, new_end))
+            region_item.setRegion(
+                (
+                    start,
+                    new_end,
+                )
+            )
 
             self.selection_region = region_item
 
@@ -6633,7 +7384,10 @@ class AudioSplitter(QDialog):
 
         except Exception as e:
 
-            print("MOVE RIGHT EDGE RIGHT ERROR:", e)
+            print(
+                "MOVE RIGHT EDGE RIGHT ERROR:",
+                e,
+            )
 
     # =====================================================
     # NUM 0 - ПРЕВКЛЮЧВАМЕ БЪРЗ / ТОЧЕН РЕЖИМ
@@ -6645,7 +7399,10 @@ class AudioSplitter(QDialog):
         # АКО НЯМАМЕ ЗАДАДЕН РЕЖИМ - ЗАПОЧВАМЕ С БЪРЗ
         # =================================================
 
-        if not hasattr(self, "selection_precision_mode"):
+        if not hasattr(
+            self,
+            "selection_precision_mode",
+        ):
 
             self.selection_precision_mode = False
 
@@ -6656,13 +7413,24 @@ class AudioSplitter(QDialog):
         self.selection_precision_mode = not self.selection_precision_mode
 
         # =================================================
+        # ЗВУК ПРИ НАТИСКАНЕ НА 0
+        # =================================================
+
+        QApplication.beep()
+
+        # =================================================
         # ТОЧЕН РЕЖИМ
         # =================================================
 
         if self.selection_precision_mode:
 
             self.selection_mode_label.setText(
-                "💡  " + language_manager.get("precision_mode").replace("🔵  ", "", 1)
+                "💡  "
+                + language_manager.get("precision_mode").replace(
+                    "🔵  ",
+                    "",
+                    1,
+                )
             )
 
         # =================================================
@@ -6672,7 +7440,12 @@ class AudioSplitter(QDialog):
         else:
 
             self.selection_mode_label.setText(
-                "💡  " + language_manager.get("fast_mode").replace("🟢  ", "", 1)
+                "💡  "
+                + language_manager.get("fast_mode").replace(
+                    "🟢  ",
+                    "",
+                    1,
+                )
             )
 
     # =====================================================
@@ -6691,7 +7464,11 @@ class AudioSplitter(QDialog):
 
             return
 
-        view_box = getattr(plot_item, "vb", None)
+        view_box = getattr(
+            plot_item,
+            "vb",
+            None,
+        )
 
         if view_box is None:
 
@@ -6719,13 +7496,29 @@ class AudioSplitter(QDialog):
 
         new_x_min = float(value) / scale
 
-        maximum_x_min = max(0.0, duration - current_width)
+        maximum_x_min = max(
+            0.0,
+            duration - current_width,
+        )
 
-        new_x_min = max(0.0, min(new_x_min, maximum_x_min))
+        new_x_min = max(
+            0.0,
+            min(
+                new_x_min,
+                maximum_x_min,
+            ),
+        )
 
-        new_x_max = min(duration, new_x_min + current_width)
+        new_x_max = min(
+            duration,
+            new_x_min + current_width,
+        )
 
-        view_box.setXRange(new_x_min, new_x_max, padding=0)
+        view_box.setXRange(
+            new_x_min,
+            new_x_max,
+            padding=0,
+        )
 
         self.waveform_start_label.setText(self.format_time(new_x_min))
 
@@ -6749,7 +7542,10 @@ class AudioSplitter(QDialog):
             # ПРИ ДВИЖЕНИЕ СПИРАМЕ МИГАНЕТО
             # =================================================
 
-            if hasattr(self, "playback_blink_timer"):
+            if hasattr(
+                self,
+                "playback_blink_timer",
+            ):
 
                 self.playback_blink_timer.stop()
 
@@ -6780,7 +7576,10 @@ class AudioSplitter(QDialog):
                 start_value = region[0]
                 end_value = region[1]
 
-                if isinstance(start_value, (list, tuple)):
+                if isinstance(
+                    start_value,
+                    (list, tuple),
+                ):
 
                     selection_start = float(start_value[0])
 
@@ -6788,7 +7587,10 @@ class AudioSplitter(QDialog):
 
                     selection_start = float(start_value)
 
-                if isinstance(end_value, (list, tuple)):
+                if isinstance(
+                    end_value,
+                    (list, tuple),
+                ):
 
                     selection_end = float(end_value[0])
 
@@ -6798,12 +7600,18 @@ class AudioSplitter(QDialog):
 
                 selection_start = max(
                     0.0,
-                    min(selection_start, self.current_duration),
+                    min(
+                        selection_start,
+                        self.current_duration,
+                    ),
                 )
 
                 selection_end = max(
                     0.0,
-                    min(selection_end, self.current_duration),
+                    min(
+                        selection_end,
+                        self.current_duration,
+                    ),
                 )
 
                 # =================================================
@@ -6895,13 +7703,19 @@ class AudioSplitter(QDialog):
             # СЛЕД ДВИЖЕНИЕТО ЗАПОЧВАМЕ МИГАНЕ
             # =================================================
 
-            if hasattr(self, "playback_blink_timer"):
+            if hasattr(
+                self,
+                "playback_blink_timer",
+            ):
 
                 self.playback_blink_timer.start()
 
         except Exception as e:
 
-            print("MOVE PLAYBACK LEFT ERROR:", e)
+            print(
+                "MOVE PLAYBACK LEFT ERROR:",
+                e,
+            )
 
     # =====================================================
     # RIGHT - ФИНО МЕСТЕНЕ НА БЯЛАТА ЛИНИЯ НАПРЕД
@@ -6923,7 +7737,10 @@ class AudioSplitter(QDialog):
             # ПРИ ДВИЖЕНИЕ СПИРАМЕ МИГАНЕТО
             # =================================================
 
-            if hasattr(self, "playback_blink_timer"):
+            if hasattr(
+                self,
+                "playback_blink_timer",
+            ):
 
                 self.playback_blink_timer.stop()
 
@@ -6954,7 +7771,10 @@ class AudioSplitter(QDialog):
                 start_value = region[0]
                 end_value = region[1]
 
-                if isinstance(start_value, (list, tuple)):
+                if isinstance(
+                    start_value,
+                    (list, tuple),
+                ):
 
                     selection_start = float(start_value[0])
 
@@ -6962,7 +7782,10 @@ class AudioSplitter(QDialog):
 
                     selection_start = float(start_value)
 
-                if isinstance(end_value, (list, tuple)):
+                if isinstance(
+                    end_value,
+                    (list, tuple),
+                ):
 
                     selection_end = float(end_value[0])
 
@@ -6972,12 +7795,18 @@ class AudioSplitter(QDialog):
 
                 selection_start = max(
                     0.0,
-                    min(selection_start, self.current_duration),
+                    min(
+                        selection_start,
+                        self.current_duration,
+                    ),
                 )
 
                 selection_end = max(
                     0.0,
-                    min(selection_end, self.current_duration),
+                    min(
+                        selection_end,
+                        self.current_duration,
+                    ),
                 )
 
                 # =================================================
@@ -7063,13 +7892,19 @@ class AudioSplitter(QDialog):
             # СЛЕД ДВИЖЕНИЕТО ЗАПОЧВАМЕ МИГАНЕ
             # =================================================
 
-            if hasattr(self, "playback_blink_timer"):
+            if hasattr(
+                self,
+                "playback_blink_timer",
+            ):
 
                 self.playback_blink_timer.start()
 
         except Exception as e:
 
-            print("MOVE PLAYBACK RIGHT ERROR:", e)
+            print(
+                "MOVE PLAYBACK RIGHT ERROR:",
+                e,
+            )
 
     # =====================================================
     # КЛИК ВЪРХУ WAVEFORM
@@ -7087,11 +7922,22 @@ class AudioSplitter(QDialog):
 
         try:
 
-            seconds = max(0.0, min(float(seconds), self.current_duration))
+            seconds = max(
+                0.0,
+                min(
+                    float(seconds),
+                    self.current_duration,
+                ),
+            )
 
-            print("CLICK SECONDS:", seconds)
+            print(
+                "CLICK SECONDS:",
+                seconds,
+            )
 
             self.vlc_player.set_time(int(seconds * 1000))
+
+            self.waveform_plot.last_click_x = seconds
 
             if self.playback_line is not None:
 
@@ -7101,16 +7947,25 @@ class AudioSplitter(QDialog):
 
         except Exception as e:
 
-            print("WAVEFORM CLICK ERROR:", e)
+            print(
+                "WAVEFORM CLICK ERROR:",
+                e,
+            )
 
     # =====================================================
     # WAVEFORM ГОТОВ
     # =====================================================
 
-    def on_waveform_ready(self, waveform, duration):
+    def on_waveform_ready(
+        self,
+        waveform,
+        duration,
+    ):
 
         self.current_duration = duration
+
         self.waveform_plot.waveform_duration = duration
+
         self.waveform_data = waveform
 
         # =================================================
@@ -7138,7 +7993,12 @@ class AudioSplitter(QDialog):
         # =================================================
 
         zero_line = pg.InfiniteLine(
-            pos=0, angle=0, pen=pg.mkPen(self.current_theme["table_grid"], width=1)
+            pos=0,
+            angle=0,
+            pen=pg.mkPen(
+                self.current_theme["table_grid"],
+                width=1,
+            ),
         )
 
         self.waveform_plot.addItem(zero_line)
@@ -7151,7 +8011,10 @@ class AudioSplitter(QDialog):
             pos=0,
             angle=90,
             movable=False,
-            pen=pg.mkPen(self.current_theme["main_text"], width=3),
+            pen=pg.mkPen(
+                self.current_theme["main_text"],
+                width=3,
+            ),
         )
 
         self.playback_line.setZValue(1000)
@@ -7174,14 +8037,23 @@ class AudioSplitter(QDialog):
         # X КООРДИНАТА
         # =================================================
 
-        x = np.linspace(0, duration, len(waveform))
+        x = np.linspace(
+            0,
+            duration,
+            len(waveform),
+        )
 
         # =================================================
         # ГОРНА ЧАСТ
         # =================================================
 
         self.waveform_plot.plot(
-            x, waveform, pen=pg.mkPen(self.current_theme["accent"], width=1)
+            x,
+            waveform,
+            pen=pg.mkPen(
+                self.current_theme["accent"],
+                width=1,
+            ),
         )
 
         # =================================================
@@ -7189,16 +8061,27 @@ class AudioSplitter(QDialog):
         # =================================================
 
         self.waveform_plot.plot(
-            x, -waveform, pen=pg.mkPen(self.current_theme["accent"], width=1)
+            x,
+            -waveform,
+            pen=pg.mkPen(
+                self.current_theme["accent"],
+                width=1,
+            ),
         )
 
         # =================================================
         # МАЩАБ
         # =================================================
 
-        self.waveform_plot.setXRange(0, duration)
+        self.waveform_plot.setXRange(
+            0,
+            duration,
+        )
 
-        self.waveform_plot.setYRange(-1, 1)
+        self.waveform_plot.setYRange(
+            -1,
+            1,
+        )
 
         self.draw_song_boundaries()
 
@@ -7212,7 +8095,11 @@ class AudioSplitter(QDialog):
 
         self.load_button.setEnabled(True)
 
-        QMessageBox.critical(self, language_manager.get("error"), message)
+        QMessageBox.critical(
+            self,
+            language_manager.get("error"),
+            message,
+        )
 
         self.waveform_plot.clear()
 
@@ -7251,7 +8138,12 @@ class AudioSplitter(QDialog):
     @staticmethod
     def format_time(seconds):
 
-        seconds = int(max(0, seconds))
+        seconds = int(
+            max(
+                0,
+                seconds,
+            )
+        )
 
         hours = seconds // 3600
 
@@ -7267,7 +8159,13 @@ class AudioSplitter(QDialog):
 
     def reject(self):
 
-        if hasattr(self, "operation_in_progress") and self.operation_in_progress:
+        if (
+            hasattr(
+                self,
+                "operation_in_progress",
+            )
+            and self.operation_in_progress
+        ):
 
             return
 
@@ -7283,13 +8181,66 @@ class AudioSplitter(QDialog):
         # НЕ ПОЗВОЛЯВАМЕ ЗАТВАРЯНЕ ПО ВРЕМЕ НА ОПЕРАЦИЯ
         # =================================================
 
-        if hasattr(self, "operation_in_progress") and self.operation_in_progress:
+        if (
+            hasattr(
+                self,
+                "operation_in_progress",
+            )
+            and self.operation_in_progress
+        ):
 
             event.ignore()
 
             return
 
+        # =================================================
+        # СПИРАМЕ БЛОКИРАНЕТО НА ОСНОВНИЯ ПРОЗОРЕЦ
+        # =================================================
+
+        self._set_parent_input_blocked(False)
+
+        # =================================================
+        # ЗАПАЗВАМЕ РЕАЛНАТА ПОЗИЦИЯ НА ПРОЗОРЕЦА
+        # =================================================
+
+        normal_geometry = self.normalGeometry()
+
+        self.window_settings.setValue(
+            "splitter_window_x",
+            normal_geometry.x(),
+        )
+
+        self.window_settings.setValue(
+            "splitter_window_y",
+            normal_geometry.y(),
+        )
+
+        self.window_settings.sync()
+
+        # =================================================
+        # ОСВОБОЖДАВАМЕ ОСНОВНИЯ ПРОЗОРЕЦ
+        # =================================================
+
+        parent = self.parentWidget()
+
+        if parent is not None:
+
+            parent.setEnabled(True)
+
+            QTimer.singleShot(
+                100,
+                parent.activateWindow,
+            )
+
+        # =================================================
+        # СПИРАМЕ ТАЙМЕРА
+        # =================================================
+
         self.position_timer.stop()
+
+        # =================================================
+        # СПИРАМЕ VLC
+        # =================================================
 
         try:
 
@@ -7300,6 +8251,10 @@ class AudioSplitter(QDialog):
         except Exception:
 
             pass
+
+        # =================================================
+        # СПИРАМЕ WORKER
+        # =================================================
 
         if self.decode_worker is not None and self.decode_worker.isRunning():
 

@@ -839,6 +839,7 @@ class ConverterWorker(QObject):
             encoding="utf-8",
             errors="ignore",
             bufsize=1,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
 
         stdout = process.stdout
@@ -1046,6 +1047,7 @@ class ConverterWorker(QObject):
                 encoding="utf-8",
                 errors="ignore",
                 timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
 
             value = result.stdout.strip()
@@ -1113,6 +1115,15 @@ class AudioConverter(QDialog):
             False,
         )
 
+        # =====================================================
+        # ПОЗВОЛЯВАМЕ МИНИМИЗИРАНЕ ОТ БУТОНА НА ПРОЗОРЕЦА
+        # =====================================================
+
+        self.setWindowFlag(
+            Qt.WindowType.WindowMinimizeButtonHint,
+            True,
+        )
+
         self.sources: list[dict[str, str]] = []
 
         self.convert_thread: QThread | None = None
@@ -1156,12 +1167,40 @@ class AudioConverter(QDialog):
             lambda: self.url_input.setFocus(Qt.FocusReason.OtherFocusReason),
         )
 
+    # =====================================================
+    # МИНИМИЗИРАНЕ НА ЦЯЛАТА ПРОГРАМА
+    # =====================================================
+
+    def changeEvent(self, event):
+
+        super().changeEvent(event)
+
+        if event.type() == QEvent.Type.WindowStateChange:
+
+            if self.isMinimized():
+
+                parent = self.parentWidget()
+
+                if parent is not None and not parent.isMinimized():
+
+                    parent.showMinimized()
+
     def find_executable(
         self,
         executable_name: str,
     ) -> str:
 
-        project_folder = Path(__file__).resolve().parent
+        # =================================================
+        # НАМИРАМЕ ПАПКАТА НА ПРОГРАМАТА
+        # =================================================
+
+        if getattr(sys, "frozen", False):
+
+            project_folder = Path(sys.executable).resolve().parent
+
+        else:
+
+            project_folder = Path(__file__).resolve().parent
 
         candidates = [
             (
@@ -1314,6 +1353,7 @@ class AudioConverter(QDialog):
         main_layout.addLayout(output_layout)
 
         self.status_label = QLabel(language_manager.get("converter_ready"))
+
         self.status_label.hide()
 
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1328,6 +1368,7 @@ class AudioConverter(QDialog):
         )
 
         self.progress_bar.setValue(0)
+
         self.progress_bar.hide()
 
         main_layout.addWidget(self.progress_bar)
@@ -2124,6 +2165,7 @@ class AudioConverter(QDialog):
         self.stop_event.clear()
 
         self.progress_bar.setValue(0)
+
         self.progress_bar.show()
 
         self.convert_button.setEnabled(False)
@@ -2239,6 +2281,7 @@ class AudioConverter(QDialog):
         if success:
 
             self.progress_bar.setValue(100)
+
             self.progress_bar.hide()
 
             self.status_label.setText(language_manager.get("converter_success_status"))

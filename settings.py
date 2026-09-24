@@ -1446,6 +1446,8 @@ class SettingsDialog(QDialog):
 
         self.settings.setValue("autosave_enabled", bool(enabled))
 
+        self.settings.sync()
+
         # =====================================================
         # ПРОМЕНЯМЕ ТЕКСТА НА ОТМЕТКАТА
         # =====================================================
@@ -1457,8 +1459,6 @@ class SettingsDialog(QDialog):
         else:
 
             self.autosave_enabled.setText("☐ " + language_manager.get("disabled"))
-
-        self.settings.sync()
 
         # =====================================================
         # ЗВУК
@@ -1475,7 +1475,7 @@ class SettingsDialog(QDialog):
             pass
 
         # =====================================================
-        # СЪОБЩЕНИЕ
+        # СЪОБЩЕНИЕ ЗА ВКЛЮЧВАНЕ / ИЗКЛЮЧВАНЕ
         # =====================================================
 
         message_box = QMessageBox(self)
@@ -1495,41 +1495,118 @@ class SettingsDialog(QDialog):
         message_box.exec()
 
         # =====================================================
-        # УВЕДОМЯВАМЕ MP3_ORDER
+        # СЪОБЩЕНИЕ ЗА ЗАДЪЛЖИТЕЛЕН РЕСТАРТ
         # =====================================================
 
-        self.settings_changed.emit()
+        restart_message_box = QMessageBox(self)
 
-        # =====================================================
-        # СЪОБЩЕНИЕ ЗА РЕСТАРТ
-        # =====================================================
+        restart_message_box.setStyleSheet("QLabel { font-size: 20px; }")
 
-        message_box = QMessageBox(self)
+        restart_message_box.setWindowTitle(language_manager.get("autosave_title"))
 
-        message_box.setStyleSheet("QLabel { font-size: 20px; }")
+        if language_manager.is_bulgarian():
 
-        message_box.setWindowTitle(language_manager.get("autosave_title"))
+            restart_message_box.setText(
+                "Моля, рестартирайте програмата,\n\n"
+                "за да се приложи промяната в "
+                "автоматичното запазване."
+            )
 
-        message_box.setText(language_manager.get("autosave_restart_message"))
+            restart_button_text = "Рестартирай"
 
-        restart_button = message_box.addButton(
-            language_manager.get("restart"), QMessageBox.ButtonRole.AcceptRole
+        else:
+
+            restart_message_box.setText(
+                "Please restart the program,\n\n"
+                "to apply the change to "
+                "automatic saving."
+            )
+
+            restart_button_text = "Restart"
+
+        restart_button = restart_message_box.addButton(
+            restart_button_text, QMessageBox.ButtonRole.AcceptRole
         )
 
-        QApplication.beep()
+        # =====================================================
+        # ПОКАЗВАМЕ ПРОЗОРЕЦА И ДАВАМЕ ЕДИН СИГНАЛ
+        # =====================================================
 
-        message_box.exec()
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(
+            100,
+            lambda: (__import__("winsound").MessageBeep(__import__("winsound").MB_OK)),
+        )
+
+        restart_message_box.exec()
 
         # =====================================================
         # РЕСТАРТИРАНЕ
         # =====================================================
 
-        if message_box.clickedButton() == restart_button:
+        if restart_message_box.clickedButton() == restart_button:
 
             import sys
             import subprocess
+            import os
 
-            subprocess.Popen([sys.executable] + sys.argv)
+            # =================================================
+            # ОПРЕДЕЛЯМЕ КАКВО ДА СТАРТИРАМЕ
+            # =================================================
+
+            if getattr(sys, "frozen", False):
+
+                restart_directory = os.path.dirname(sys.executable)
+
+                launcher_exe = os.path.join(
+                    restart_directory,
+                    "launcher.exe",
+                )
+
+                if os.path.isfile(launcher_exe):
+
+                    restart_command = [
+                        launcher_exe,
+                    ]
+
+                else:
+
+                    restart_command = [
+                        sys.executable,
+                    ]
+
+            else:
+
+                restart_command = [
+                    sys.executable,
+                    *sys.argv,
+                ]
+
+                restart_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+                restart_directory = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+            # =================================================
+            # НОВ НЕЗАВИСИМ PYINSTALLER ПРОЦЕС
+            # =================================================
+
+            restart_environment = os.environ.copy()
+
+            restart_environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+
+            subprocess.Popen(
+                restart_command,
+                cwd=restart_directory,
+                env=restart_environment,
+                creationflags=(
+                    subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                ),
+            )
+
+            # =================================================
+            # ЗАТВАРЯМЕ ТЕКУЩИЯ ПРОЦЕС
+            # =================================================
 
             app = QApplication.instance()
 
@@ -1643,8 +1720,65 @@ class SettingsDialog(QDialog):
 
             import sys
             import subprocess
+            import os
 
-            subprocess.Popen([sys.executable] + sys.argv)
+            # =================================================
+            # ОПРЕДЕЛЯМЕ КАКВО ДА СТАРТИРАМЕ
+            # =================================================
+
+            if getattr(sys, "frozen", False):
+
+                restart_directory = os.path.dirname(sys.executable)
+
+                launcher_exe = os.path.join(
+                    restart_directory,
+                    "launcher.exe",
+                )
+
+                if os.path.isfile(launcher_exe):
+
+                    restart_command = [
+                        launcher_exe,
+                    ]
+
+                else:
+
+                    restart_command = [
+                        sys.executable,
+                    ]
+
+            else:
+
+                restart_command = [
+                    sys.executable,
+                    *sys.argv,
+                ]
+
+                restart_directory = os.path.dirname(
+                    os.path.abspath(sys.argv[0])
+                )
+
+            # =================================================
+            # НОВ НЕЗАВИСИМ PYINSTALLER ПРОЦЕС
+            # =================================================
+
+            restart_environment = os.environ.copy()
+
+            restart_environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+
+            subprocess.Popen(
+                restart_command,
+                cwd=restart_directory,
+                env=restart_environment,
+                creationflags=(
+                    subprocess.DETACHED_PROCESS
+                    | subprocess.CREATE_NEW_PROCESS_GROUP
+                ),
+            )
+
+            # =================================================
+            # ЗАТВАРЯМЕ ТЕКУЩИЯ ПРОЦЕС
+            # =================================================
 
             app = QApplication.instance()
 

@@ -641,6 +641,22 @@ class LanguageManager:
                 "bg": "По-късно",
                 "en": "Later",
             },
+            "update_downloading": {
+                "bg": "🔄 Изтегляне на обновлението...",
+                "en": "🔄 Downloading update...",
+            },
+            "update_download_progress": {
+                "bg": "Изтегляне: {percent}% — {downloaded} / {total}",
+                "en": "Downloading: {percent}% — {downloaded} / {total}",
+            },
+            "update_download_progress_unknown": {
+                "bg": "Изтегляне: {downloaded}",
+                "en": "Downloading: {downloaded}",
+            },
+            "update_download_error": {
+                "bg": "Обновяването не можа да бъде изтеглено.",
+                "en": "The update could not be downloaded.",
+            },
             # ==================================================
             # СТАТУСИ
             # ==================================================
@@ -683,6 +699,10 @@ class LanguageManager:
             "loading_project": {
                 "bg": "⏳ Зареждане на проекта: {file_name}",
                 "en": "⏳ Loading project: {file_name}",
+            },
+            "loading_list_complete": {
+                "bg": "✅ Зареждането на списъка завърши: {file_name}",
+                "en": "✅ Loading List completed: {file_name}",
             },
             "loading_mp3": {
                 "bg": "🎵 Зареждане на MP3 файла...",
@@ -870,6 +890,205 @@ class LanguageManager:
             "analyze_first": {
                 "bg": "Първо трябва да анализираш файла.",
                 "en": "You must analyze the file first.",
+            },
+            # ==================================================
+            # РАЗДЕЛЯНЕ НА MP3 - ДОПЪЛНИТЕЛНИ ТЕКСТОВЕ
+            # ==================================================
+            "analysis_already_done_title": {
+                "bg": "Анализът вече е извършен",
+                "en": "Analysis Already Completed",
+            },
+            "analysis_already_done": {
+                "bg": "Този MP3 файл вече е анализиран.",
+                "en": "This MP3 file has already been analyzed.",
+            },
+            "analysis_generic_error": {
+                "bg": "Грешка при анализа:\n{error}",
+                "en": "Analysis error:\n{error}",
+            },
+            "analysis_loading": {
+                "bg": "🔍 Анализиране на MP3 файла...",
+                "en": "🔍 Analyzing MP3 file...",
+            },
+            "analysis_ready": {
+                "bg": "✅ Анализът е готов.",
+                "en": "✅ Analysis is ready.",
+            },
+            "decode_error": {
+                "bg": "Грешка при зареждане на аудиото:\n{error}",
+                "en": "Audio loading error:\n{error}",
+            },
+            "delete_error_title": {
+                "bg": "Грешка при изтриване",
+                "en": "Delete Error",
+            },
+            "delete_error": {
+                "bg": "Грешка при изтриване на маркирания участък:\n{error}",
+                "en": "Error deleting the selected section:\n{error}",
+            },
+            "delete_selection_progress": {
+                "bg": "Изтриване на маркирания участък...",
+                "en": "Deleting the selected section...",
+            },
+            "delete_worker_error": {
+                "bg": "FFmpeg не успя да изтрие маркирания участък:\n{error}",
+                "en": "FFmpeg could not delete the selected section:\n{error}",
+            },
+            "delete_worker_exception": {
+                "bg": "Грешка при изтриване:\n{error}",
+                "en": "Delete error:\n{error}",
+            },
+            "duration_read_error": {
+                "bg": "Продължителността на файла не можа да бъде прочетена:\n{error}",
+                "en": "The file duration could not be read:\n{error}",
+            },
+            "ffmpeg_expected_path": {
+                "bg": "FFmpeg не е намерен в очакваното местоположение:\n{path}",
+                "en": "FFmpeg was not found at the expected location:\n{path}",
+            },
+            "ffmpeg_not_found": {
+                "bg": "FFmpeg не е намерен.",
+                "en": "FFmpeg was not found.",
+            },
+            "ffmpeg_process_error": {
+                "bg": "FFmpeg не успя да обработи аудио файла.",
+                "en": "FFmpeg failed to process the audio file.",
+            },
+            "invalid_duration": {
+                "bg": "Невалидна продължителност на MP3 файла.",
+                "en": "Invalid MP3 file duration.",
+            },
+            "invalid_total_duration": {
+                "bg": "Невалидна обща продължителност на песните.",
+                "en": "Invalid total duration of the songs.",
+            },
+            "line_free": {
+                "bg": "Бялата линия е свободна.",
+                "en": "The playback line is free.",
+            },
+            "load_dialog_title": {
+                "bg": "Зареди MP3 файл",
+                "en": "Load MP3 File",
+            },
+            "loaded_file_missing": {
+                "bg": "Зареденият MP3 файл вече не съществува.",
+                "en": "The loaded MP3 file no longer exists.",
+            },
+            "no_audio_signal": {
+                "bg": "В MP3 файла не беше открит аудио сигнал.",
+                "en": "No audio signal was found in the MP3 file.",
+            },
+            "no_loaded_file_title": {
+                "bg": "Няма зареден файл",
+                "en": "No File Loaded",
+            },
+            "no_songs_to_split": {
+                "bg": "Няма песни за разделяне.",
+                "en": "There are no songs to split.",
+            },
+            "pause_error": {
+                "bg": "Грешка при поставяне на пауза:\n{error}",
+                "en": "Pause error:\n{error}",
+            },
+            "pause_error_title": {
+                "bg": "Грешка при пауза",
+                "en": "Pause Error",
+            },
+            "playback_error": {
+                "bg": "Възникна грешка при възпроизвеждане:\n{error}",
+                "en": "A playback error occurred:\n{error}",
+            },
+            "playback_error_title": {
+                "bg": "Грешка при възпроизвеждане",
+                "en": "Playback Error",
+            },
+            "remaining_plain": {
+                "bg": "Оставащо: {time}",
+                "en": "Remaining: {time}",
+            },
+            "selected_mp3_missing": {
+                "bg": "Избраният MP3 файл не съществува.",
+                "en": "The selected MP3 file does not exist.",
+            },
+            "slot_deleted": {
+                "bg": "Слот {slot} е изтрит.",
+                "en": "Slot {slot} was deleted.",
+            },
+            "slot_empty": {
+                "bg": "Слот {slot} е празен.",
+                "en": "Slot {slot} is empty.",
+            },
+            "slot_no_selection": {
+                "bg": "Няма маркировка за запис в слот {slot}.",
+                "en": "There is no selection to save in slot {slot}.",
+            },
+            "slot_restored": {
+                "bg": "Маркировката от слот {slot} е възстановена.",
+                "en": "Selection from slot {slot} was restored.",
+            },
+            "slot_saved": {
+                "bg": "Маркировката е запазена в слот {slot}.",
+                "en": "Selection was saved to slot {slot}.",
+            },
+            "song_number": {
+                "bg": "Песен {index}",
+                "en": "Song {index}",
+            },
+            "split_generic_error": {
+                "bg": "Грешка при разделяне:\n{error}",
+                "en": "Split error:\n{error}",
+            },
+            "split_song_error": {
+                "bg": "Грешка при разделяне на песен {index}:\n{error}",
+                "en": "Error splitting song {index}:\n{error}",
+            },
+            "split_success": {
+                "bg": "Разделянето на MP3 файловете завърши успешно.",
+                "en": "The MP3 files were split successfully.",
+            },
+            "split_success_title": {
+                "bg": "Разделяне на MP3",
+                "en": "Split MP3",
+            },
+            "stop_error": {
+                "bg": "Грешка при спиране:\n{error}",
+                "en": "Stop error:\n{error}",
+            },
+            "stop_error_title": {
+                "bg": "Грешка при спиране",
+                "en": "Stop Error",
+            },
+            "undo_error": {
+                "bg": "Грешка при възстановяване:\n{error}",
+                "en": "Undo error:\n{error}",
+            },
+            "undo_error_title": {
+                "bg": "Грешка при възстановяване",
+                "en": "Undo Error",
+            },
+            "undo_missing": {
+                "bg": "Предишният MP3 файл вече не съществува.",
+                "en": "The previous MP3 file no longer exists.",
+            },
+            "undo_missing_title": {
+                "bg": "Възстановяването е невъзможно",
+                "en": "Undo Unavailable",
+            },
+            "undo_progress": {
+                "bg": "Възстановяване на предишния MP3 файл...",
+                "en": "Restoring the previous MP3 file...",
+            },
+            "update_audio": {
+                "bg": "Актуализиране на аудио файла...",
+                "en": "Updating audio file...",
+            },
+            "vlc_not_initialized": {
+                "bg": "VLC не е инициализиран.",
+                "en": "VLC is not initialized.",
+            },
+            "vlc_player_not_initialized": {
+                "bg": "VLC аудио плейърът не е инициализиран.",
+                "en": "The VLC audio player is not initialized.",
             },
             # ==================================================
             # КОНВЕРТОР

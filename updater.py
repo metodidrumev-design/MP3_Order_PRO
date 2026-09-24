@@ -17,6 +17,7 @@ GITHUB_REPO = "MP3_Order_PRO"
 
 GITHUB_API_VERSION = "2026-03-10"
 
+
 # =====================================================
 # UPDATE INFORMATION
 # =====================================================
@@ -43,6 +44,7 @@ def normalize_version(version):
     version = str(version).strip()
 
     if version.lower().startswith("v"):
+
         version = version[1:]
 
     return version
@@ -59,9 +61,11 @@ def version_tuple(version):
     for part in parts[:3]:
 
         try:
+
             numbers.append(int(part))
 
         except ValueError:
+
             numbers.append(0)
 
     while len(numbers) < 3:
@@ -98,7 +102,10 @@ def check_for_update(current_version=APP_VERSION):
 
     try:
 
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(
+            request,
+            timeout=10,
+        ) as response:
 
             data = json.loads(response.read().decode("utf-8"))
 
@@ -106,26 +113,42 @@ def check_for_update(current_version=APP_VERSION):
 
         return None
 
-    latest_version = data.get("tag_name", "")
+    latest_version = data.get(
+        "tag_name",
+        "",
+    )
 
     if not latest_version:
 
         return None
 
-    if not is_newer_version(current_version, latest_version):
+    if not is_newer_version(
+        current_version,
+        latest_version,
+    ):
 
         return None
 
-    assets = data.get("assets", [])
+    assets = data.get(
+        "assets",
+        [],
+    )
 
     download_url = None
     file_name = None
 
+    # =================================================
+    # ТЪРСИМ ТОЧНО ОСНОВНИЯ EXE
+    # =================================================
+
     for asset in assets:
 
-        asset_name = asset.get("name", "")
+        asset_name = asset.get(
+            "name",
+            "",
+        )
 
-        if asset_name.lower().endswith(".exe"):
+        if asset_name.lower() == "mp3_order_pro.exe":
 
             download_url = asset.get("browser_download_url")
 
@@ -140,8 +163,14 @@ def check_for_update(current_version=APP_VERSION):
     return UpdateInfo(
         current_version=current_version,
         latest_version=normalize_version(latest_version),
-        release_url=data.get("html_url", ""),
-        release_notes=data.get("body", ""),
+        release_url=data.get(
+            "html_url",
+            "",
+        ),
+        release_notes=data.get(
+            "body",
+            "",
+        ),
         download_url=download_url,
         file_name=file_name,
     )
@@ -152,7 +181,11 @@ def check_for_update(current_version=APP_VERSION):
 # =====================================================
 
 
-def download_update(update_info, destination):
+def download_update(
+    update_info,
+    destination,
+    progress_callback=None,
+):
 
     if not update_info.download_url:
 
@@ -167,11 +200,62 @@ def download_update(update_info, destination):
 
     try:
 
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(
+            request,
+            timeout=60,
+        ) as response:
 
-            with open(destination, "wb") as file:
+            total_size = int(
+                response.headers.get(
+                    "Content-Length",
+                    "0",
+                )
+            )
 
-                file.write(response.read())
+            downloaded_size = 0
+
+            chunk_size = 1024 * 1024
+
+            with open(
+                destination,
+                "wb",
+            ) as file:
+
+                while True:
+
+                    chunk = response.read(chunk_size)
+
+                    if not chunk:
+
+                        break
+
+                    file.write(chunk)
+
+                    downloaded_size += len(chunk)
+
+                    if progress_callback:
+
+                        if total_size > 0:
+
+                            progress_percent = int((downloaded_size / total_size) * 100)
+
+                        else:
+
+                            progress_percent = 0
+
+                        progress_callback(
+                            progress_percent,
+                            downloaded_size,
+                            total_size,
+                        )
+
+        if progress_callback:
+
+            progress_callback(
+                100,
+                downloaded_size,
+                total_size,
+            )
 
         return True
 
@@ -185,20 +269,73 @@ def download_update(update_info, destination):
 # =====================================================
 
 
-def apply_update(old_exe, new_exe, restart_exe=None):
+def apply_update(
+    old_exe,
+    new_exe,
+    restart_exe=None,
+):
 
     try:
 
-        # Изчакваме старата програма да освободи файла
+        # =================================================
+        # ИЗЧАКВАМЕ СТАРАТА ПРОГРАМА
+        # =================================================
+
         time.sleep(2)
 
-        # Заменяме старата версия с новата
-        os.replace(new_exe, old_exe)
+        # =================================================
+        # ЗАМЕНЯМЕ СТАРАТА ВЕРСИЯ С НОВАТА
+        # =================================================
 
-        # Стартираме новата версия
-        if restart_exe:
+        os.replace(
+            new_exe,
+            old_exe,
+        )
 
-            subprocess.Popen([restart_exe], close_fds=True)
+        # =================================================
+        # ОПРЕДЕЛЯМЕ ПАПКАТА НА ПРОГРАМАТА
+        # =================================================
+
+        install_dir = os.path.dirname(old_exe)
+
+        # =================================================
+        # ТЪРСИМ LAUNCHER.EXE
+        # =================================================
+
+        launcher_exe = os.path.join(
+            install_dir,
+            "launcher.exe",
+        )
+
+        # =================================================
+        # АКО ИМА LAUNCHER - СТАРТИРАМЕ НЕГО
+        # ИНАЧЕ - СТАРТИРАМЕ ПОДАДЕНИЯ EXE
+        # =================================================
+
+        if os.path.isfile(launcher_exe):
+
+            restart_target = launcher_exe
+
+        else:
+
+            restart_target = restart_exe or old_exe
+
+        # =================================================
+        # СТАРТИРАМЕ ПРОГРАМАТА
+        # =================================================
+
+        if restart_target:
+
+            subprocess.Popen(
+                [restart_target],
+                cwd=install_dir,
+                close_fds=True,
+                creationflags=getattr(
+                    subprocess,
+                    "CREATE_NO_WINDOW",
+                    0,
+                ),
+            )
 
         return True
 
@@ -212,7 +349,10 @@ def apply_update(old_exe, new_exe, restart_exe=None):
 # =====================================================
 
 
-def wait_for_process(process_id, timeout=30):
+def wait_for_process(
+    process_id,
+    timeout=30,
+):
 
     if not process_id:
 
@@ -232,7 +372,11 @@ def wait_for_process(process_id, timeout=30):
                 ],
                 capture_output=True,
                 text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                creationflags=getattr(
+                    subprocess,
+                    "CREATE_NO_WINDOW",
+                    0,
+                ),
             )
 
             if str(process_id) not in result.stdout:
@@ -260,7 +404,9 @@ def run_updater():
         return
 
     old_exe = sys.argv[1]
+
     new_exe = sys.argv[2]
+
     restart_exe = sys.argv[3]
 
     process_id = None
@@ -275,9 +421,17 @@ def run_updater():
 
             process_id = None
 
+    # =================================================
+    # ИЗЧАКВАМЕ СТАРИЯ ПРОЦЕС
+    # =================================================
+
     if not wait_for_process(process_id):
 
         return
+
+    # =================================================
+    # ПРИЛАГАМЕ ОБНОВЯВАНЕТО
+    # =================================================
 
     apply_update(
         old_exe,

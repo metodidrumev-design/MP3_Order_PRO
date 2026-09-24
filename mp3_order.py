@@ -9,8 +9,9 @@ import shutil
 import re
 import threading
 import tempfile
+import subprocess
 
-from typing import cast
+from typing import Any, cast
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -63,20 +64,27 @@ from PySide6.QtGui import (
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3
 
-import vlc
-
-from audio_splitter import AudioSplitter
-from audio_converter import AudioConverter
-from accessibility import AccessibilityManager
-from accessibility_ui import AccessibilityUI
 from language_manager import language_manager
 
+# ============================================================
+# ОТЛОЖЕНО ЗАРЕЖДАНИ МОДУЛИ
+# ============================================================
 
-from updater import (
-    check_for_update,
-    download_update,
-    apply_update,
-)
+vlc: Any = None
+
+AudioSplitter: Any = None
+
+AudioConverter: Any = None
+
+AccessibilityManager: Any = None
+
+AccessibilityUI: Any = None
+
+check_for_update: Any = None
+
+download_update: Any = None
+
+apply_update: Any = None
 
 # =================
 # Край на imports
@@ -84,10 +92,23 @@ from updater import (
 
 # ===== ПЪТ КЪМ ЛОГОТО =====
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, "frozen", False):
 
-LOGO_PATH = os.path.join(BASE_DIR, "assets", "MP3_Order_Logo.png")
+    BASE_DIR = getattr(
+        sys,
+        "_MEIPASS",
+        os.path.dirname(sys.executable),
+    )
 
+else:
+
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+LOGO_PATH = os.path.join(
+    BASE_DIR,
+    "assets",
+    "MP3_Order_Logo.png",
+)
 
 songs = []
 
@@ -616,6 +637,84 @@ class SongTableWidget(QTableWidget):
 
             return
 
+        # =====================================================
+        # ← / → - ПРЕВЪРТАМЕ ТЕКУЩО ПУСНАТАТА ПЕСЕН
+        # =====================================================
+
+        elif event.key() == Qt.Key.Key_Left:
+
+            window = self.window()
+
+            vlc_player = getattr(
+                window,
+                "vlc_player",
+                None,
+            )
+
+            if vlc_player is not None:
+
+                current_time = vlc_player.get_time()
+
+                total_time = vlc_player.get_length()
+
+                if current_time >= 0 and total_time > 0:
+
+                    new_time = max(
+                        0,
+                        current_time - 5000,
+                    )
+
+                    vlc_player.set_time(new_time)
+
+                    update_progress = getattr(
+                        window,
+                        "update_progress",
+                        None,
+                    )
+
+                    if callable(update_progress):
+
+                        update_progress()
+
+            return
+
+        elif event.key() == Qt.Key.Key_Right:
+
+            window = self.window()
+
+            vlc_player = getattr(
+                window,
+                "vlc_player",
+                None,
+            )
+
+            if vlc_player is not None:
+
+                current_time = vlc_player.get_time()
+
+                total_time = vlc_player.get_length()
+
+                if current_time >= 0 and total_time > 0:
+
+                    new_time = min(
+                        total_time,
+                        current_time + 5000,
+                    )
+
+                    vlc_player.set_time(new_time)
+
+                    update_progress = getattr(
+                        window,
+                        "update_progress",
+                        None,
+                    )
+
+                    if callable(update_progress):
+
+                        update_progress()
+
+            return
+
         # СТРЕЛКА НАДОЛУ -> следващата видима песен
         elif event.key() == Qt.Key.Key_Down:
 
@@ -700,11 +799,22 @@ class MP3Order(QWidget):
 
         self.setWindowIcon(QIcon(LOGO_PATH))
 
-        self.resize(1200, 800)
+        self.resize(
+            1200,
+            800,
+        )
 
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(
+            900,
+            600,
+        )
 
-        self.showMaximized()
+        # =================================================
+        # ЗАДАВАМЕ МАКСИМИЗИРАН РЕЖИМ,
+        # БЕЗ ДА ПОКАЗВАМЕ ПРОЗОРЕЦА
+        # =================================================
+
+        self.setWindowState(Qt.WindowState.WindowMaximized)
 
         self._pending_update = None
 
@@ -715,7 +825,10 @@ class MP3Order(QWidget):
 
         self._update_thread.start()
 
-        QTimer.singleShot(1000, self._check_update_result)
+        QTimer.singleShot(
+            1000,
+            self._check_update_result,
+        )
 
         self.setAcceptDrops(True)
 
@@ -1710,14 +1823,29 @@ class MP3Order(QWidget):
         if app is not None:
             app.installEventFilter(self)
 
-        self.setTabOrder(add_files, add_folder)
-        self.setTabOrder(add_folder, up)
-        self.setTabOrder(up, down)
-        self.setTabOrder(down, remove)
-        self.setTabOrder(remove, check)
-        self.setTabOrder(check, split)
-        self.setTabOrder(split, edit_tags)
-        self.setTabOrder(edit_tags, export)
+        # =====================================================
+        # БЕЗОПАСЕН TAB ORDER
+        # =====================================================
+
+        tab_order_pairs = [
+            (add_files, add_folder),
+            (add_folder, up),
+            (up, down),
+            (down, remove),
+            (remove, check),
+            (check, split),
+            (split, edit_tags),
+            (edit_tags, export),
+        ]
+
+        for first_widget, second_widget in tab_order_pairs:
+
+            if first_widget.window() is second_widget.window():
+
+                self.setTabOrder(
+                    first_widget,
+                    second_widget,
+                )
 
         self.setFocus()
 
@@ -3295,9 +3423,9 @@ class MP3Order(QWidget):
 
             QApplication.processEvents()
 
-            # ===== ОСТАВА ВИДИМО 2 СЕКУНДИ =====
+            # ===== ОСТАВА ВИДИМО 5 СЕКУНДИ =====
 
-            QTimer.singleShot(2000, self.loading_overlay.hide)
+            QTimer.singleShot(5000, self.loading_overlay.hide)
 
         except Exception as e:
 
@@ -4020,19 +4148,64 @@ class MP3Order(QWidget):
 
         self.audio_splitter = AudioSplitter(self)
 
-        self.audio_splitter.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.audio_splitter.setWindowModality(
+            Qt.WindowModality.NonModal,
+        )
 
-        self.audio_splitter.setGeometry(236, 30, 1566, 906)
+        self.audio_splitter.resize(
+            1566,
+            906,
+        )
 
         self.audio_splitter.show()
+
+        # =================================================
+        # ВЕДНАГА ДАВАМЕ ФОКУС НА РАЗДЕЛИ MP3
+        # =================================================
+
+        self.audio_splitter.raise_()
+
+        self.audio_splitter.activateWindow()
+
+        self.audio_splitter.setFocus()
+
+        # =================================================
+        # БЛОКИРАМЕ ОСНОВНИЯ ПРОЗОРЕЦ
+        # =================================================
+
+        self.setEnabled(False)
+
+        # =================================================
+        # ДОПЪЛНИТЕЛНО ВРЪЩАМЕ ФОКУСА
+        # =================================================
+
+        QTimer.singleShot(
+            100,
+            self.audio_splitter.raise_,
+        )
+
+        QTimer.singleShot(
+            100,
+            self.audio_splitter.activateWindow,
+        )
+
+        QTimer.singleShot(
+            100,
+            self.audio_splitter.setFocus,
+        )
+
+        QTimer.singleShot(
+            100,
+            lambda: self.audio_splitter.load_button.setFocus(
+                Qt.FocusReason.ActiveWindowFocusReason,
+            ),
+        )
 
     def open_audio_converter(self):
 
         self.audio_converter = AudioConverter(self)
 
-        self.audio_converter.setWindowModality(Qt.WindowModality.ApplicationModal)
-
-        self.audio_converter.setModal(True)
+        self.audio_converter.setWindowModality(Qt.WindowModality.WindowModal)
 
         self.audio_converter.show()
 
@@ -4043,30 +4216,62 @@ class MP3Order(QWidget):
         self.audio_converter.url_input.setFocus()
 
     # =====================================================
-    # ВРЪЩАМЕ AUDIO SPLITTER НА ФОКУС ПРИ ВЪЗСТАНОВЯВАНЕ
+    # ВЪЗСТАНОВЯВАНЕ НА AUDIO SPLITTER / AUDIO CONVERTER
     # =====================================================
 
     def changeEvent(self, event):
 
         super().changeEvent(event)
 
-        if event.type() == QEvent.Type.WindowStateChange:
+        if event.type() != QEvent.Type.WindowStateChange:
 
-            if (
-                hasattr(self, "audio_splitter")
-                and self.audio_splitter is not None
-                and self.audio_splitter.isVisible()
-            ):
+            return
 
-                if self.isMinimized():
+        # =================================================
+        # AUDIO SPLITTER
+        # =================================================
 
-                    self.set_audio_splitter_taskbar_visible(False)
+        if (
+            hasattr(self, "audio_splitter")
+            and self.audio_splitter is not None
+            and self.audio_splitter.isVisible()
+        ):
 
-                else:
+            # =================================================
+            # ПРИ ВЪЗСТАНОВЯВАНЕ ВРЪЩАМЕ ФОКУСА КЪМ SPLITTER
+            # =================================================
 
-                    self.set_audio_splitter_taskbar_visible(True)
+            if not self.isMinimized():
 
-                    QTimer.singleShot(100, self.restore_audio_splitter_focus)
+                QTimer.singleShot(
+                    100,
+                    self.restore_audio_splitter_focus,
+                )
+
+        # =================================================
+        # AUDIO CONVERTER
+        # =================================================
+
+        if (
+            hasattr(self, "audio_converter")
+            and self.audio_converter is not None
+            and self.audio_converter.isVisible()
+        ):
+
+            # =================================================
+            # ПРИ ВЪЗСТАНОВЯВАНЕ ВРЪЩАМЕ ФОКУСА КЪМ CONVERTER
+            # =================================================
+
+            if not self.isMinimized():
+
+                QTimer.singleShot(
+                    100,
+                    self.restore_audio_converter_focus,
+                )
+
+    # =====================================================
+    # AUDIO SPLITTER - TASKBAR ВИДИМОСТ
+    # =====================================================
 
     def set_audio_splitter_taskbar_visible(self, visible):
 
@@ -4096,7 +4301,10 @@ class MP3Order(QWidget):
 
                 user32 = ctypes.windll.user32
 
-                ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                ex_style = user32.GetWindowLongW(
+                    hwnd,
+                    GWL_EXSTYLE,
+                )
 
                 if visible:
 
@@ -4110,7 +4318,11 @@ class MP3Order(QWidget):
 
                     ex_style |= WS_EX_TOOLWINDOW
 
-                user32.SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style)
+                user32.SetWindowLongW(
+                    hwnd,
+                    GWL_EXSTYLE,
+                    ex_style,
+                )
 
                 user32.SetWindowPos(
                     hwnd,
@@ -4124,7 +4336,14 @@ class MP3Order(QWidget):
 
             except Exception as e:
 
-                print("AUDIO SPLITTER TASKBAR ERROR:", e)
+                print(
+                    "AUDIO SPLITTER TASKBAR ERROR:",
+                    e,
+                )
+
+    # =====================================================
+    # ВРЪЩАМЕ AUDIO SPLITTER
+    # =====================================================
 
     def restore_audio_splitter_focus(self):
 
@@ -4143,6 +4362,32 @@ class MP3Order(QWidget):
         self.audio_splitter.activateWindow()
 
         self.audio_splitter.setFocus()
+
+    # =====================================================
+    # ВРЪЩАМЕ AUDIO CONVERTER
+    # =====================================================
+
+    def restore_audio_converter_focus(self):
+
+        if (
+            not hasattr(self, "audio_converter")
+            or self.audio_converter is None
+            or not self.audio_converter.isVisible()
+        ):
+
+            return
+
+        self.audio_converter.showNormal()
+
+        self.audio_converter.raise_()
+
+        self.audio_converter.activateWindow()
+
+        self.audio_converter.setFocus()
+
+        if hasattr(self.audio_converter, "url_input"):
+
+            self.audio_converter.url_input.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def new_list(self):
 
@@ -5142,27 +5387,47 @@ class MP3Order(QWidget):
 
         layout.addWidget(buttons)
 
-        if dialog.exec() == QDialog.DialogCode.Accepted:
+        # =================================================
+        # ЧАКАМЕ РЕЗУЛТАТА ОТ ДИАЛОГА
+        # =================================================
 
-            new_artist = artist_edit.text().strip()
-            new_title = title_edit.text().strip()
+        dialog_result = dialog.exec()
 
-            if self.save_id3_tags(
-                path,
-                new_artist,
-                new_title,
-            ):
+        # =================================================
+        # ESC И CANCEL -> НИЩО НЕ ЗАПАЗВАМЕ
+        # =================================================
 
-                # =================================================
-                # ЗАПАЗВАМЕ И ВЪТРЕШНО В ПРОГРАМАТА
-                # =================================================
+        if dialog_result != QDialog.DialogCode.Accepted:
 
-                if path not in edited_tags:
+            return
 
-                    edited_tags[path] = {}
+        # =================================================
+        # САМО OK -> ПРОДЪЛЖАВАМЕ КЪМ ЗАПИС
+        # =================================================
 
-                edited_tags[path]["artist"] = new_artist
-                edited_tags[path]["title"] = new_title
+        new_artist = artist_edit.text().strip()
+
+        new_title = title_edit.text().strip()
+
+        if not self.save_id3_tags(
+            path,
+            new_artist,
+            new_title,
+        ):
+
+            return
+
+        # =================================================
+        # ЗАПАЗВАМЕ И ВЪТРЕШНО В ПРОГРАМАТА
+        # =================================================
+
+        if path not in edited_tags:
+
+            edited_tags[path] = {}
+
+        edited_tags[path]["artist"] = new_artist
+
+        edited_tags[path]["title"] = new_title
 
         # =================================================
         # ОБНОВЯВАМЕ ТАБЛИЦАТА ВЕДНАГА
@@ -5290,11 +5555,18 @@ class MP3Order(QWidget):
                 self.language_manager.get("nero_ready"),
             )
 
+    # =========================================================
+    # ПРОВЕРКА И ПРИЛАГАНЕ НА ЪПДЕЙТ
+    # =========================================================
+
     def _check_update_result(self):
 
         if self._update_thread.is_alive():
 
-            QTimer.singleShot(500, self._check_update_result)
+            QTimer.singleShot(
+                500,
+                self._check_update_result,
+            )
 
             return
 
@@ -5315,6 +5587,10 @@ class MP3Order(QWidget):
         update_info = self._pending_update
 
         self._pending_update = None
+
+        # =====================================================
+        # ПОКАЗВАМЕ, ЧЕ ИМА НОВА ВЕРСИЯ
+        # =====================================================
 
         message_box = QMessageBox(self)
 
@@ -5342,27 +5618,281 @@ class MP3Order(QWidget):
 
         message_box.exec()
 
+        # =====================================================
+        # АКО ПОТРЕБИТЕЛЯТ Е ИЗБРАЛ ЪПДЕЙТ
+        # =====================================================
+
         if message_box.clickedButton() is update_button:
 
             try:
+
+                # =================================================
+                # СВАЛЯМЕ НОВАТА ВЕРСИЯ В TEMP
+                # =================================================
 
                 update_file = os.path.join(
                     tempfile.gettempdir(),
                     "MP3_Order_PRO_Update.exe",
                 )
 
-                download_update(
-                    update_info,
-                    update_file,
+                # =================================================
+                # СЪСТОЯНИЕ НА ИЗТЕГЛЯНЕТО
+                # =================================================
+
+                download_state = {
+                    "percent": 0,
+                    "downloaded": 0,
+                    "total": 0,
+                    "finished": False,
+                    "success": False,
+                }
+
+                # =================================================
+                # ФОРМАТИРАНЕ НА РАЗМЕРА
+                # =================================================
+
+                def format_size(size):
+
+                    size = float(size)
+
+                    units = [
+                        "B",
+                        "KB",
+                        "MB",
+                        "GB",
+                    ]
+
+                    unit_index = 0
+
+                    while size >= 1024 and unit_index < len(units) - 1:
+
+                        size /= 1024
+
+                        unit_index += 1
+
+                    return f"{size:.2f} " f"{units[unit_index]}"
+
+                # =================================================
+                # CALLBACK ЗА ПРОГРЕСА
+                # =================================================
+
+                def download_progress(
+                    percent,
+                    downloaded,
+                    total,
+                ):
+
+                    download_state["percent"] = percent
+                    download_state["downloaded"] = downloaded
+                    download_state["total"] = total
+
+                # =================================================
+                # РАБОТНИК ЗА ИЗТЕГЛЯНЕ
+                # =================================================
+
+                def download_worker():
+
+                    try:
+
+                        download_state["success"] = download_update(
+                            update_info,
+                            update_file,
+                            download_progress,
+                        )
+
+                    except Exception:
+
+                        download_state["success"] = False
+
+                    finally:
+
+                        download_state["finished"] = True
+
+                # =================================================
+                # ПРОЗОРЕЦ ЗА ПРОГРЕСА
+                # =================================================
+
+                progress_dialog = QDialog(self)
+
+                progress_dialog.setWindowTitle(
+                    language_manager.get("update_downloading")
                 )
 
-                QMessageBox.information(
-                    self,
-                    language_manager.get("update_available_title"),
-                    "Обновяването е изтеглено и програмата ще се рестартира.",
+                progress_dialog.setModal(True)
+
+                progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+
+                progress_dialog.setFixedSize(
+                    520,
+                    170,
                 )
 
-                os.startfile(update_file)
+                progress_layout = QVBoxLayout(progress_dialog)
+
+                progress_label = QLabel(language_manager.get("update_downloading"))
+
+                progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+                progress_layout.addWidget(progress_label)
+
+                progress_bar = QProgressBar()
+
+                progress_bar.setMinimum(0)
+                progress_bar.setMaximum(100)
+                progress_bar.setValue(0)
+
+                progress_bar.setTextVisible(True)
+
+                progress_layout.addWidget(progress_bar)
+
+                # =================================================
+                # ТАЙМЕР ЗА ОБНОВЯВАНЕ НА ПРОГРЕСА
+                # =================================================
+
+                progress_timer = QTimer(progress_dialog)
+
+                def update_download_ui():
+
+                    percent = download_state["percent"]
+
+                    downloaded = download_state["downloaded"]
+
+                    total = download_state["total"]
+
+                    if total > 0:
+
+                        progress_bar.setRange(
+                            0,
+                            100,
+                        )
+
+                        progress_bar.setValue(percent)
+
+                        progress_label.setText(
+                            language_manager.get(
+                                "update_download_progress",
+                                percent=percent,
+                                downloaded=format_size(downloaded),
+                                total=format_size(total),
+                            )
+                        )
+
+                    else:
+
+                        progress_bar.setRange(
+                            0,
+                            0,
+                        )
+
+                        progress_label.setText(
+                            language_manager.get(
+                                "update_download_progress_unknown",
+                                downloaded=format_size(downloaded),
+                            )
+                        )
+
+                    if download_state["finished"]:
+
+                        progress_timer.stop()
+
+                        if download_state["success"]:
+
+                            progress_bar.setRange(
+                                0,
+                                100,
+                            )
+
+                            progress_bar.setValue(100)
+
+                        progress_dialog.accept()
+
+                progress_timer.timeout.connect(update_download_ui)
+
+                # =================================================
+                # СТАРТИРАМЕ ИЗТЕГЛЯНЕТО
+                # =================================================
+
+                download_thread = threading.Thread(
+                    target=download_worker,
+                    daemon=True,
+                )
+
+                download_thread.start()
+
+                progress_timer.start(100)
+
+                progress_dialog.exec()
+
+                download_thread.join(timeout=1.0)
+
+                # =================================================
+                # ПРОВЕРЯВАМЕ РЕЗУЛТАТА
+                # =================================================
+
+                if not download_state["success"]:
+
+                    raise RuntimeError(language_manager.get("update_download_error"))
+
+                # =================================================
+                # ОПРЕДЕЛЯМЕ ТЕКУЩИЯ EXE
+                # =================================================
+
+                old_exe = sys.executable
+
+                # =================================================
+                # НАМИРАМЕ ОТДЕЛНИЯ UPDATER
+                # =================================================
+
+                updater_exe = os.path.join(
+                    os.path.dirname(old_exe),
+                    "MP3_Order_PRO_Updater.exe",
+                )
+
+                if not os.path.isfile(updater_exe):
+
+                    raise FileNotFoundError(language_manager.get("error"))
+
+                # =================================================
+                # ЗАПАЗВАМЕ PID НА СТАРАТА ПРОГРАМА
+                # =================================================
+
+                process_id = os.getpid()
+
+                # =================================================
+                # ОПРЕДЕЛЯМЕ LAUNCHER-А ЗА РЕСТАРТ
+                # =================================================
+
+                launcher_exe = os.path.join(
+                    os.path.dirname(old_exe),
+                    "launcher.exe",
+                )
+
+                # =================================================
+                # АКО ИМА LAUNCHER - ИЗПОЛЗВАМЕ НЕГО
+                # АКО НЯМА - СТАРТИРАМЕ ОСНОВНИЯ EXE
+                # =================================================
+
+                restart_exe = launcher_exe if os.path.isfile(launcher_exe) else old_exe
+
+                # =================================================
+                # СТАРТИРАМЕ UPDATER
+                # =================================================
+
+                subprocess.Popen(
+                    [
+                        updater_exe,
+                        old_exe,
+                        update_file,
+                        restart_exe,
+                        str(process_id),
+                    ],
+                    close_fds=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+
+                # =================================================
+                # ЗАТВАРЯМЕ СТАРАТА ПРОГРАМА
+                # =================================================
 
                 QApplication.quit()
 
@@ -5370,8 +5900,8 @@ class MP3Order(QWidget):
 
                 QMessageBox.critical(
                     self,
-                    "MP3_Order",
-                    f"Грешка при обновяването:\n{error}",
+                    language_manager.get("error"),
+                    str(error),
                 )
 
     # =========================================================
@@ -5459,6 +5989,27 @@ class MP3Order(QWidget):
 
     # ===== КЛАВИАТУРНИ КОМАНДИ =====
     def eventFilter(self, obj, event):
+
+        # =========================================================
+        # ВРЪЩАНЕ НА MINIMIZED AUDIO CONVERTER ПРИ ALT + TAB
+        # =========================================================
+
+        if event.type() == QEvent.Type.WindowActivate:
+
+            if (
+                obj is self
+                and hasattr(self, "audio_converter")
+                and self.audio_converter is not None
+                and self.audio_converter.isVisible()
+                and self.audio_converter.isMinimized()
+            ):
+
+                QTimer.singleShot(
+                    0,
+                    self.restore_audio_converter_focus,
+                )
+
+                return False
 
         # =========================================================
         # ALT / МЕНЮ
@@ -6084,13 +6635,31 @@ app = QApplication(sys.argv)
 # SPLASH SCREEN
 # =====================================================
 
+# =====================================================
+# ПРОВЕРЯВАМЕ ДАЛИ РАБОТИМ КАТО COMPILED EXE
+# =====================================================
+
+is_frozen = getattr(
+    sys,
+    "frozen",
+    False,
+)
+
+
+# =====================================================
+# НАШИЯТ QT SPLASH
+# =====================================================
+
 splash = QWidget()
 
 splash.setWindowFlags(
     Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
 )
 
-splash.setFixedSize(500, 330)
+splash.setFixedSize(
+    500,
+    330,
+)
 
 splash.setStyleSheet("""
     QWidget {
@@ -6126,7 +6695,9 @@ splash_layout.setContentsMargins(
 splash_layout.setSpacing(20)
 
 
-# ===== ЛОГО =====
+# =====================================================
+# ЛОГО
+# =====================================================
 
 splash_logo = QLabel()
 
@@ -6145,12 +6716,15 @@ if not logo_pixmap.isNull():
         )
     )
 
-
 splash_layout.addWidget(
     splash_logo,
     1,
 )
-# ===== НАДПИС ЗА ЗАРЕЖДАНЕ =====
+
+
+# =====================================================
+# НАДПИС ЗА ЗАРЕЖДАНЕ
+# =====================================================
 
 splash_loading = QLabel(language_manager.get("loading"))
 
@@ -6168,7 +6742,10 @@ splash_loading.setStyleSheet("""
 
 splash_layout.addWidget(splash_loading)
 
-# ===== ПРОГРЕС =====
+
+# =====================================================
+# ПРОГРЕС
+# =====================================================
 
 splash_progress = QProgressBar()
 
@@ -6184,7 +6761,9 @@ splash_progress.setTextVisible(True)
 splash_layout.addWidget(splash_progress)
 
 
-# ===== ЦЕНТРИРАМЕ SPLASH =====
+# =====================================================
+# ЦЕНТРИРАМЕ SPLASH
+# =====================================================
 
 screen = QApplication.primaryScreen()
 
@@ -6199,7 +6778,15 @@ if screen is not None:
     splash.move(splash_geometry.topLeft())
 
 
+# =====================================================
+# ПОКАЗВАМЕ QT SPLASH ПРИ ВСЯКО СТАРТИРАНЕ
+# =====================================================
+
 splash.show()
+
+splash.raise_()
+
+splash.activateWindow()
 
 app.processEvents()
 
@@ -6212,52 +6799,247 @@ app.processEvents()
 def start_program():
 
     global window
+    global vlc
+    global AudioSplitter
+    global AudioConverter
+    global AccessibilityManager
+    global AccessibilityUI
+    global check_for_update
+    global download_update
+    global apply_update
 
     splash_progress.setValue(0)
 
     app.processEvents()
 
-    progress_value = {
-        "value": 0,
+    loading_state = {
+        "done": False,
+        "error": None,
+        "modules": {},
+        "window_created": False,
     }
 
-    def finish_loading():
+    # =====================================================
+    # МИНИМАЛНО ВРЕМЕ ЗА SPLASH
+    # =====================================================
+
+    splash_elapsed = QElapsedTimer()
+
+    splash_elapsed.start()
+
+    splash_duration = 15000
+
+    # =====================================================
+    # ЗАРЕЖДАНЕ НА ТЕЖКИТЕ МОДУЛИ ВЪВ ФОНОВ НИШЪН
+    # =====================================================
+
+    def load_modules():
+
+        try:
+
+            import vlc as vlc_module
+
+            from audio_splitter import AudioSplitter as AudioSplitterClass
+
+            from audio_converter import AudioConverter as AudioConverterClass
+
+            from accessibility import AccessibilityManager as AccessibilityManagerClass
+
+            from accessibility_ui import AccessibilityUI as AccessibilityUIClass
+
+            from updater import (
+                check_for_update as check_for_update_function,
+                download_update as download_update_function,
+                apply_update as apply_update_function,
+            )
+
+            loading_state["modules"] = {
+                "vlc": vlc_module,
+                "AudioSplitter": AudioSplitterClass,
+                "AudioConverter": AudioConverterClass,
+                "AccessibilityManager": AccessibilityManagerClass,
+                "AccessibilityUI": AccessibilityUIClass,
+                "check_for_update": check_for_update_function,
+                "download_update": download_update_function,
+                "apply_update": apply_update_function,
+            }
+
+            loading_state["done"] = True
+
+        except Exception as error:
+
+            loading_state["error"] = error
+
+    loader_thread = threading.Thread(
+        target=load_modules,
+        daemon=True,
+    )
+
+    loader_thread.start()
+
+    # =====================================================
+    # ПРОВЕРКА НА ЗАРЕЖДАНЕТО
+    # =====================================================
+
+    def check_loading():
 
         global window
+        global vlc
+        global AudioSplitter
+        global AudioConverter
+        global AccessibilityManager
+        global AccessibilityUI
+        global check_for_update
+        global download_update
+        global apply_update
 
-        window = MP3Order()
+        elapsed = splash_elapsed.elapsed()
 
-        window.hide()
+        # =================================================
+        # ГРЕШКА
+        # =================================================
 
-        splash_progress.setValue(100)
+        if loading_state["error"] is not None:
+
+            loading_timer.stop()
+
+            QMessageBox.critical(
+                None,
+                "MP3_Order",
+                str(loading_state["error"]),
+            )
+
+            splash.hide()
+
+            splash.deleteLater()
+
+            return
+
+        # =================================================
+        # ПРОГРЕС СПОРЕД 15-ТЕ СЕКУНДИ
+        # =================================================
+
+        progress_value = int(
+            min(
+                98,
+                (elapsed / splash_duration) * 98,
+            )
+        )
+
+        splash_progress.setValue(progress_value)
 
         app.processEvents()
 
-        window.show()
+        # =================================================
+        # МОДУЛИТЕ СА ГОТОВИ
+        # =================================================
 
-        splash.close()
+        if loading_state["done"]:
 
-    def update_splash_progress():
+            modules = loading_state["modules"]
 
-        progress_value["value"] += 1
+            vlc = modules["vlc"]
 
-        splash_progress.setValue(progress_value["value"])
+            AudioSplitter = modules["AudioSplitter"]
 
-        app.processEvents()
+            AudioConverter = modules["AudioConverter"]
 
-        if progress_value["value"] >= 95:
+            AccessibilityManager = modules["AccessibilityManager"]
 
-            splash_timer.stop()
+            AccessibilityUI = modules["AccessibilityUI"]
 
-            finish_loading()
+            check_for_update = modules["check_for_update"]
 
-    splash_timer = QTimer()
+            download_update = modules["download_update"]
 
-    splash_timer.setInterval(60)
+            apply_update = modules["apply_update"]
 
-    splash_timer.timeout.connect(update_splash_progress)
+            # =================================================
+            # СЪЗДАВАМЕ ОСНОВНИЯ ПРОЗОРЕЦ САМО ВЕДНЪЖ
+            # =================================================
 
-    splash_timer.start()
+            if not loading_state["window_created"]:
+
+                window = MP3Order()
+
+                window.hide()
+
+                loading_state["window_created"] = True
+
+                app.processEvents()
+
+        # =================================================
+        # ИЗЧАКВАМЕ 15 СЕКУНДИ
+        # =================================================
+
+        if (
+            loading_state["done"]
+            and loading_state["window_created"]
+            and elapsed >= splash_duration
+        ):
+
+            loading_timer.stop()
+
+            # =================================================
+            # ПРОГРАМАТА Е ГОТОВА
+            # =================================================
+
+            splash_progress.setValue(100)
+
+            app.processEvents()
+
+            # =================================================
+            # ЗАТВАРЯМЕ QT SPLASH
+            # =================================================
+
+            splash.hide()
+
+            splash.deleteLater()
+
+            # =================================================
+            # ПОКАЗВАМЕ ОСНОВНАТА ПРОГРАМА
+            # =================================================
+
+            window.show()
+
+            window.raise_()
+
+            window.activateWindow()
+
+            app.processEvents()
+
+            # =================================================
+            # УВЕДОМЯВАМЕ LAUNCHER-А
+            # ЧЕ ПРОГРАМАТА Е ГОТОВА
+            # =================================================
+
+            if is_frozen:
+
+                try:
+
+                    ready_file = os.environ.get("MP3_ORDER_READY_FILE")
+
+                    if ready_file:
+
+                        with open(
+                            ready_file,
+                            "w",
+                            encoding="utf-8",
+                        ) as file:
+
+                            file.write("ready")
+
+                except Exception:
+
+                    pass
+
+    loading_timer = QTimer()
+
+    loading_timer.setInterval(50)
+
+    loading_timer.timeout.connect(check_loading)
+
+    loading_timer.start()
 
 
 QTimer.singleShot(
