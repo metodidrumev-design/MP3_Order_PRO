@@ -226,6 +226,14 @@ class LanguageManager:
                 "bg": "Готово",
                 "en": "Done",
             },
+            "undo_success": {
+                "bg": "Списъкът е възстановен успешно.",
+                "en": "The list has been restored successfully.",
+            },
+            "undo_song_success": {
+                "bg": "Песента „{song}“ е възстановена успешно.",
+                "en": 'The song "{song}" has been restored successfully.',
+            },
             "delete_success": {
                 "bg": "Записите са изтрити успешно от списъка.",
                 "en": "The entries were deleted successfully from the list.",

@@ -38,6 +38,9 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QProgressBar,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
 )
 
 from PySide6.QtCore import (
@@ -50,6 +53,7 @@ from PySide6.QtCore import (
     QItemSelection,
     QItemSelectionModel,
     QModelIndex,
+    QObject,
 )
 
 from PySide6.QtGui import (
@@ -87,10 +91,19 @@ download_update: Any = None
 apply_update: Any = None
 
 # =================
-# Край на imports
 
-
-# ===== ПЪТ КЪМ ЛОГОТО =====
+# Край на imports# =====
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
+# ПЪТ КЪМ ЛОГОТО =====
 
 if getattr(sys, "frozen", False):
 
@@ -285,6 +298,29 @@ def song_info(path):
     return title, artist, duration
 
 
+# =========================================================
+# DELEGATE ЗА ТАБЛИЦАТА
+# БЕЗ ЧЕРЕН HOVER МАРКЕР
+# =========================================================
+
+
+class NoBlankRowHoverDelegate(QStyledItemDelegate):
+
+    def paint(self, painter, option, index):
+
+        option = QStyleOptionViewItem(option)
+
+        # ===== ПРЕМАХВАМЕ HOVER МАРКЕРА ОТ ВСИЧКИ РЕДОВЕ =====
+
+        option.state &= ~QStyle.StateFlag.State_MouseOver
+
+        super().paint(
+            painter,
+            option,
+            index,
+        )
+
+
 class SongTableWidget(QTableWidget):
 
     def __init__(self, parent=None):
@@ -305,17 +341,18 @@ class SongTableWidget(QTableWidget):
 
         self.setMouseTracking(True)
 
-        self.setStyleSheet(f"""
+        self.setItemDelegate(NoBlankRowHoverDelegate(self))
 
-        QTableWidget::item:hover {{
-
-            background: transparent;
-
-            border: none;
-
-        }}
-
+        self.setStyleSheet("""
+            QTableWidget::item:hover {
+                background: transparent;
+                border: none;
+            }
         """)
+
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.viewport().setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, False)
 
     def mousePressEvent(self, event):
 
@@ -354,18 +391,36 @@ class SongTableWidget(QTableWidget):
         if not songs:
 
             self.clearSelection()
+
             self.setCurrentCell(-1, -1)
+
+            self.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+
+            self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+            self.setCurrentIndex(QModelIndex())
+
+            self.viewport().setAttribute(
+                Qt.WidgetAttribute.WA_Hover,
+                False,
+            )
+
             self._scroll_direction = 0
+
             self._scroll_timer.stop()
 
             event.accept()
             return
 
-        if (
-            self._drag_row < 0
-            or self._mouse_down_pos is None
-            or not (event.buttons() & Qt.MouseButton.LeftButton)
-        ):
+        # ===== ОБИКНОВЕНО ДВИЖЕНИЕ НА МИШКАТА =====
+        # Не позволяваме на Qt да създава черни маркери
+        # върху таблицата, когато не влачим песен.
+
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            event.accept()
+            return
+
+        if self._drag_row < 0 or self._mouse_down_pos is None:
             super().mouseMoveEvent(event)
             return
 
@@ -778,6 +833,491 @@ class SongTableWidget(QTableWidget):
         super().keyPressEvent(event)
 
 
+# =========================================================
+# ЦЕНТРАЛЕН МЕНИДЖЪР ЗА ФОКУСА НА ПРОЗОРЦИТЕ
+# =========================================================
+
+
+class WindowFocusManager(QObject):
+
+    def __init__(
+        self,
+        app,
+        main_window,
+    ):
+
+        super().__init__(main_window)
+
+        self.app = app
+        self.main_window = main_window
+
+        # =================================================
+        # РЕГИСТРИРАНИ ПРОЗОРЦИ
+        # =================================================
+
+        self.windows = []
+
+        # =================================================
+        # ПОСЛЕДНО АКТИВИРАН ПРОЗОРЕЦ
+        # =================================================
+
+        self.last_active_window = main_window
+
+        # =================================================
+        # СТАРТИРАНЕ НА ПРОГРАМАТА
+        # =================================================
+
+        self.startup_complete = False
+
+        # =================================================
+        # ПРЕДОТВРАТЯВАМЕ ДВОЙНО ВЪЗСТАНОВЯВАНЕ
+        # =================================================
+
+        self.restoring = False
+
+        # =================================================
+        # РЕГИСТРИРАМЕ ГЛАВНИЯ ПРОЗОРЕЦ
+        # =================================================
+
+        self.register_window(
+            main_window,
+            None,
+            priority=0,
+            maximize=True,
+        )
+
+        # =================================================
+        # СЛЕДИМ АКТИВИРАНЕТО НА ЦЯЛОТО ПРИЛОЖЕНИЕ
+        # =================================================
+
+        self.app.applicationStateChanged.connect(self._application_state_changed)
+
+    # =====================================================
+    # РЕГИСТРИРАМЕ ПРОЗОРЕЦ
+    # =====================================================
+
+    def register_window(
+        self,
+        window,
+        focus_widget=None,
+        priority=0,
+        maximize=False,
+    ):
+
+        if window is None:
+            return
+
+        # =================================================
+        # ПРОЗОРЕЦЪТ ВЕЧЕ Е РЕГИСТРИРАН
+        # =================================================
+
+        for item in self.windows:
+
+            if item["window"] is window:
+
+                item["focus_widget"] = focus_widget
+                item["priority"] = priority
+                item["maximize"] = maximize
+
+                return
+
+        # =================================================
+        # ДОБАВЯМЕ НОВИЯ ПРОЗОРЕЦ
+        # =================================================
+
+        self.windows.append(
+            {
+                "window": window,
+                "focus_widget": focus_widget,
+                "priority": priority,
+                "maximize": maximize,
+            }
+        )
+
+        # =================================================
+        # СЛЕДИМ WINDOW ACTIVATE
+        # =================================================
+
+        window.installEventFilter(self)
+
+        # =====================================================
+        # ЗАЯВЯВАМЕ FOREGROUND PERMISSION ОТ WINDOWS
+        # =====================================================
+
+        def claim_foreground_permission(self):
+
+            try:
+
+                import ctypes
+                import os
+
+                user32 = ctypes.windll.user32
+
+                user32.AllowSetForegroundWindow(os.getpid())
+
+            except Exception:
+
+                pass
+
+    # =====================================================
+    # ОТБЕЛЯЗВАМЕ, ЧЕ СТАРТИРАНЕТО Е ПРИКЛЮЧИЛО
+    # =====================================================
+
+    def set_startup_complete(self):
+
+        self.startup_complete = True
+
+    # =====================================================
+    # ИЗБИРАМЕ КОЙ ПРОЗОРЕЦ ТРЯБВА ДА СЕ ВЪРНЕ
+    # =====================================================
+
+    def get_restore_window(self):
+
+        visible_windows = []
+
+        for item in self.windows:
+
+            window = item["window"]
+
+            if window is not None and window.isVisible():
+
+                visible_windows.append(item)
+
+        # =================================================
+        # НЯМА ДРУГ ПРОЗОРЕЦ
+        # ВРЪЩАМЕ ГЛАВНИЯ
+        # =================================================
+
+        if not visible_windows:
+
+            return (
+                self.main_window,
+                None,
+                True,
+            )
+
+        # =================================================
+        # НАЙ-ВИСОКИЯТ PRIORITY ПЕЧЕЛИ
+        # =================================================
+
+        visible_windows.sort(
+            key=lambda item: item["priority"],
+            reverse=True,
+        )
+
+        selected = visible_windows[0]
+
+        return (
+            selected["window"],
+            selected["focus_widget"],
+            selected["maximize"],
+        )
+
+    # =====================================================
+    # ВРЪЩАМЕ И ФОКУСИРАМЕ ПРОЗОРЕЦ
+    # =====================================================
+
+    def restore_window(
+        self,
+        window,
+        focus_widget=None,
+        maximize=False,
+    ):
+
+        if window is None:
+            return
+
+        if not window.isVisible():
+            return
+
+        # =================================================
+        # НЕ ДОПУСКАМЕ ДВОЙНА ОПЕРАЦИЯ
+        # =================================================
+
+        if self.restoring:
+            return
+
+        self.restoring = True
+
+        try:
+
+            import ctypes
+
+            user32 = ctypes.windll.user32
+
+            # =================================================
+            # QT ВЪЗСТАНОВЯВАНЕ
+            # =================================================
+
+            if window.isMinimized():
+
+                window.showNormal()
+
+            if maximize:
+
+                window.showMaximized()
+
+                window.setWindowState(Qt.WindowState.WindowMaximized)
+
+            else:
+
+                window.showNormal()
+
+            window.raise_()
+
+            window.activateWindow()
+
+            if window.windowHandle() is not None:
+
+                window.windowHandle().requestActivate()
+
+            QApplication.processEvents()
+
+            # =================================================
+            # WINDOWS HWND
+            # =================================================
+
+            window_hwnd = int(window.winId())
+
+            foreground_hwnd = user32.GetForegroundWindow()
+
+            foreground_thread = user32.GetWindowThreadProcessId(
+                foreground_hwnd,
+                None,
+            )
+
+            current_thread = user32.GetCurrentThreadId()
+
+            attached = False
+
+            # =================================================
+            # СВЪРЗВАМЕ THREAD INPUT
+            # =================================================
+
+            if foreground_thread and foreground_thread != current_thread:
+
+                attached = bool(
+                    user32.AttachThreadInput(
+                        current_thread,
+                        foreground_thread,
+                        True,
+                    )
+                )
+
+            # =================================================
+            # WINDOWS ПОКАЗВАНЕ
+            # =================================================
+
+            if maximize:
+
+                user32.ShowWindow(
+                    window_hwnd,
+                    3,
+                )
+
+            else:
+
+                user32.ShowWindow(
+                    window_hwnd,
+                    9,
+                )
+
+            # =================================================
+            # TOPMOST ИМПУЛС
+            # =================================================
+
+            HWND_TOPMOST = -1
+            HWND_NOTOPMOST = -2
+
+            SWP_NOSIZE = 0x0001
+            SWP_NOMOVE = 0x0002
+            SWP_SHOWWINDOW = 0x0040
+
+            user32.SetWindowPos(
+                window_hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW,
+            )
+
+            user32.SetWindowPos(
+                window_hwnd,
+                HWND_NOTOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW,
+            )
+
+            # =================================================
+            # WINDOWS FOREGROUND
+            # =================================================
+
+            user32.BringWindowToTop(
+                window_hwnd,
+            )
+
+            user32.SetActiveWindow(
+                window_hwnd,
+            )
+
+            user32.SetForegroundWindow(
+                window_hwnd,
+            )
+
+            # =================================================
+            # ДАВАМЕ WINDOWS ФОКУС
+            # НА КОНКРЕТНИЯ КОНТРОЛ
+            # =================================================
+
+            if (
+                focus_widget is not None
+                and focus_widget.isVisible()
+                and focus_widget.isEnabled()
+            ):
+
+                focus_hwnd = int(focus_widget.winId())
+
+                user32.SetFocus(
+                    focus_hwnd,
+                )
+
+            # =================================================
+            # ОСВОБОЖДАВАМЕ THREAD INPUT
+            # =================================================
+
+            if attached:
+
+                user32.AttachThreadInput(
+                    current_thread,
+                    foreground_thread,
+                    False,
+                )
+
+        except Exception:
+
+            pass
+
+        finally:
+
+            self.restoring = False
+
+        # =================================================
+        # ФИНАЛЕН QT ФОКУС
+        # =================================================
+
+        window.raise_()
+
+        window.activateWindow()
+
+        if window.windowHandle() is not None:
+
+            window.windowHandle().requestActivate()
+
+        if (
+            focus_widget is not None
+            and focus_widget.isVisible()
+            and focus_widget.isEnabled()
+        ):
+
+            focus_widget.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    # =====================================================
+    # ВЪЗСТАНОВЯВАМЕ ПРАВИЛНИЯ ПРОЗОРЕЦ
+    # =====================================================
+
+    def restore_active_window(self):
+
+        (
+            window,
+            focus_widget,
+            maximize,
+        ) = self.get_restore_window()
+
+        self.restore_window(
+            window,
+            focus_widget,
+            maximize,
+        )
+
+    # =====================================================
+    # ПРИ ВРЪЩАНЕ НА ПРИЛОЖЕНИЕТО
+    # =====================================================
+
+    def _application_state_changed(
+        self,
+        state,
+    ):
+
+        # =================================================
+        # ПО ВРЕМЕ НА STARTUP НЕ ПИПАМЕ ФОКУСА
+        # =================================================
+
+        if not self.startup_complete:
+            return
+
+        # =================================================
+        # САМО КОГАТО ПРИЛОЖЕНИЕТО Е СТАНАЛО ACTIVE
+        # =================================================
+
+        if state != Qt.ApplicationState.ApplicationActive:
+            return
+
+        # =================================================
+        # НЯКОЛКО ОПИТА
+        # ЗА WINDOWS FOCUS
+        # =================================================
+
+        QTimer.singleShot(
+            50,
+            self.restore_active_window,
+        )
+
+        QTimer.singleShot(
+            150,
+            self.restore_active_window,
+        )
+
+        QTimer.singleShot(
+            300,
+            self.restore_active_window,
+        )
+
+        QTimer.singleShot(
+            600,
+            self.restore_active_window,
+        )
+
+    # =====================================================
+    # СЛЕДИМ КОЙ ПРОЗОРЕЦ Е СТАНАЛ ACTIVE
+    # =====================================================
+
+    def eventFilter(
+        self,
+        obj,
+        event,
+    ):
+
+        if event.type() == QEvent.Type.WindowActivate:
+
+            for item in self.windows:
+
+                if item["window"] is obj:
+
+                    self.last_active_window = obj
+
+                    break
+
+        return super().eventFilter(
+            obj,
+            event,
+        )
+
+
 class MP3Order(QWidget):
 
     def __init__(self):
@@ -792,6 +1332,21 @@ class MP3Order(QWidget):
         self.accessibility = AccessibilityManager(self)
         self.accessibility_ui = AccessibilityUI(self)
         self.language_manager = language_manager
+
+        # =====================================================
+        # ЦЕНТРАЛЕН МЕНИДЖЪР ЗА ФОКУСА НА ПРОЗОРЦИТЕ
+        # =====================================================
+
+        self.window_focus_manager = WindowFocusManager(
+            QApplication.instance(),
+            self,
+        )
+
+        # =====================================================
+        # STARTUP СОСТОЯНИЕ
+        # =====================================================
+
+        self._startup_complete = False
 
         self.setWindowTitle(self.language_manager.get("app_title"))
 
@@ -1125,6 +1680,17 @@ class MP3Order(QWidget):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.table.setCurrentCell(-1, -1)
 
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+
+        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        self.table.setCurrentIndex(QModelIndex())
+
+        self.table.viewport().setAttribute(
+            Qt.WidgetAttribute.WA_Hover,
+            False,
+        )
+
         self.drop_label = QLabel(self.language_manager.get("drop_mp3"))
 
         self.drop_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1200,10 +1766,7 @@ class MP3Order(QWidget):
                 selection-color: {self.current_theme["main_text"]};
             }}
 
-            QTableWidget::item:hover {{
-                background: transparent;
-                border: none;
-            }}
+            
         """)
 
         self.table.setRowCount(25)
@@ -2240,6 +2803,14 @@ class MP3Order(QWidget):
             self.playing_index = next_index
             self.playing_path = file_path
 
+            # ===== ОБНОВЯВАМЕ ИМЕТО НА НОВАТА ПЕСЕН =====
+
+            if hasattr(self, "now_playing_label"):
+
+                song_name = os.path.basename(file_path)
+
+                self.now_playing_label.setText(song_name)
+
             try:
 
                 assert self.vlc_instance is not None
@@ -2920,6 +3491,10 @@ class MP3Order(QWidget):
 
     def highlight_playing_song(self):
 
+        # ===== ЗАПОМНЯМЕ РЪЧНО ИЗБРАНИЯ РЕД =====
+
+        selected_row = self.table.currentRow()
+
         # ===== ОЦВЕТЯВАНЕ НА СВИРЕЩАТА ПЕСЕН =====
 
         for row in range(self.table.rowCount()):
@@ -2934,6 +3509,13 @@ class MP3Order(QWidget):
 
         # Няма запомнена свиреща песен
         if not self.playing_path:
+
+            # Връщаме синия маркер на ръчно избрания ред
+            if selected_row >= 0:
+
+                self.table.selectRow(selected_row)
+
+                self.table.setCurrentCell(selected_row, 1)
 
             return
 
@@ -3044,20 +3626,36 @@ class MP3Order(QWidget):
 
             self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        # Празна таблица = без сиви маркери
+            # ===== ПРАЗНИТЕ РЕДОВЕ НЕ МОГАТ ДА СТАНАТ ТЕКУЩА КЛЕТКА =====
+
+            current_row = self.table.currentRow()
+
+            if current_row >= len(songs):
+
+                self.table.clearSelection()
+
+                self.table.setCurrentCell(-1, -1)
+
+                self.table.setCurrentIndex(QModelIndex())
+
+            else:
+
+                self.table.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, False)
+
+        # ===== СТИЛ НА ТАБЛИЦАТА =====
+
         if not songs:
 
-            self.table.clearSelection()
-
-            self.table.setCurrentIndex(QModelIndex())
-
-            self.table.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, False)
+            table_hover_fix = """
+                QTableWidget::item:hover {
+                    background: transparent;
+                    border: none;
+                }
+            """
 
         else:
 
-            self.table.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-
-        # ===== СТИЛ НА ТАБЛИЦАТА =====
+            table_hover_fix = ""
 
         self.table.setStyleSheet(f"""
             QTableWidget {{
@@ -3069,10 +3667,7 @@ class MP3Order(QWidget):
                 selection-color: {self.current_theme["main_text"]};
             }}
 
-            QTableWidget::item:hover {{
-                background: transparent;
-                border: none;
-            }}
+            {table_hover_fix}
 
             QTableWidget::item:selected {{
                 background: {self.current_theme["table_selected"]};
@@ -3290,15 +3885,46 @@ class MP3Order(QWidget):
 
     def open_list(self):
 
+        from PySide6.QtCore import QSettings
+
+        # =================================================
+        # ПОСЛЕДНА ПАПКА ЗА „ОТВОРИ ПРОЕКТ“
+        # =================================================
+
+        settings = QSettings(
+            "MP3_Order",
+            "MP3_Order_PRO",
+        )
+
+        last_folder = str(
+            settings.value(
+                "last_main_open_project_folder",
+                "",
+            )
+        )
+
+        if not last_folder or not os.path.isdir(last_folder):
+
+            last_folder = ""
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             self.language_manager.get("open_list"),
-            "",
+            last_folder,
             self.language_manager.get("mp3_list_filter"),
         )
 
         if not file_path:
             return
+
+        # =================================================
+        # ЗАПАЗВАМЕ ПОСЛЕДНАТА ПАПКА
+        # =================================================
+
+        settings.setValue(
+            "last_main_open_project_folder",
+            os.path.dirname(file_path),
+        )
 
         file_name = os.path.basename(file_path)
 
@@ -3425,7 +4051,10 @@ class MP3Order(QWidget):
 
             # ===== ОСТАВА ВИДИМО 5 СЕКУНДИ =====
 
-            QTimer.singleShot(5000, self.loading_overlay.hide)
+            QTimer.singleShot(
+                5000,
+                self.loading_overlay.hide,
+            )
 
         except Exception as e:
 
@@ -3768,10 +4397,7 @@ class MP3Order(QWidget):
                     selection-color: {self.current_theme["main_text"]};
                 }}
 
-                QTableWidget::item:hover {{
-                    background: transparent;
-                    border: none;
-                }}
+                
             """)
 
             header = self.table.horizontalHeader()
@@ -4078,6 +4704,8 @@ class MP3Order(QWidget):
 
     def save_list_as(self):
 
+        from PySide6.QtCore import QSettings
+
         if not songs:
 
             QMessageBox.information(
@@ -4088,10 +4716,30 @@ class MP3Order(QWidget):
 
             return
 
+        # =================================================
+        # ПОСЛЕДНА ПАПКА ЗА ЗАПАЗВАНЕ НА ПРОЕКТ
+        # =================================================
+
+        settings = QSettings(
+            "MP3_Order",
+            "MP3_Order_PRO",
+        )
+
+        last_folder = str(
+            settings.value(
+                "last_main_save_project_folder",
+                "",
+            )
+        )
+
+        if not last_folder or not os.path.isdir(last_folder):
+
+            last_folder = ""
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             self.language_manager.get("save_list_as_title"),
-            "",
+            last_folder,
             self.language_manager.get("mp3_list_filter"),
         )
 
@@ -4102,6 +4750,15 @@ class MP3Order(QWidget):
         if not file_path.lower().endswith(".m3plist"):
 
             file_path += ".m3plist"
+
+        # =================================================
+        # ЗАПАЗВАМЕ ПОСЛЕДНАТА ПАПКА
+        # =================================================
+
+        settings.setValue(
+            "last_main_save_project_folder",
+            os.path.dirname(file_path),
+        )
 
         # ===== ЗАПАЗВАМЕ ТЕКУЩО ИЗБРАНАТА ПЕСЕН ЗА F3 =====
 
@@ -4203,9 +4860,29 @@ class MP3Order(QWidget):
 
     def open_audio_converter(self):
 
+        # =====================================================
+        # СЪЗДАВАМЕ AUDIO CONVERTER
+        # =====================================================
+
         self.audio_converter = AudioConverter(self)
 
-        self.audio_converter.setWindowModality(Qt.WindowModality.WindowModal)
+        self.audio_converter.setWindowModality(Qt.WindowModality.NonModal)
+
+        # =====================================================
+        # РЕГИСТРИРАМЕ CONVERTER-А В ЦЕНТРАЛНИЯ
+        # МЕНИДЖЪР ЗА ФОКУС
+        # =====================================================
+
+        self.window_focus_manager.register_window(
+            self.audio_converter,
+            self.audio_converter.url_input,
+            priority=10,
+            maximize=False,
+        )
+
+        # =====================================================
+        # ПОКАЗВАМЕ CONVERTER-А
+        # =====================================================
 
         self.audio_converter.show()
 
@@ -4213,10 +4890,18 @@ class MP3Order(QWidget):
 
         self.audio_converter.activateWindow()
 
-        self.audio_converter.url_input.setFocus()
+        if self.audio_converter.windowHandle() is not None:
+
+            self.audio_converter.windowHandle().requestActivate()
+
+        # =====================================================
+        # ПЪРВОНАЧАЛЕН ФОКУС В URL ПОЛЕТО
+        # =====================================================
+
+        self.audio_converter.url_input.setFocus(Qt.FocusReason.OtherFocusReason)
 
     # =====================================================
-    # ВЪЗСТАНОВЯВАНЕ НА AUDIO SPLITTER / AUDIO CONVERTER
+    # ВЪЗСТАНОВЯВАНЕ НА AUDIO SPLITTER
     # =====================================================
 
     def changeEvent(self, event):
@@ -4246,27 +4931,6 @@ class MP3Order(QWidget):
                 QTimer.singleShot(
                     100,
                     self.restore_audio_splitter_focus,
-                )
-
-        # =================================================
-        # AUDIO CONVERTER
-        # =================================================
-
-        if (
-            hasattr(self, "audio_converter")
-            and self.audio_converter is not None
-            and self.audio_converter.isVisible()
-        ):
-
-            # =================================================
-            # ПРИ ВЪЗСТАНОВЯВАНЕ ВРЪЩАМЕ ФОКУСА КЪМ CONVERTER
-            # =================================================
-
-            if not self.isMinimized():
-
-                QTimer.singleShot(
-                    100,
-                    self.restore_audio_converter_focus,
                 )
 
     # =====================================================
@@ -4363,32 +5027,6 @@ class MP3Order(QWidget):
 
         self.audio_splitter.setFocus()
 
-    # =====================================================
-    # ВРЪЩАМЕ AUDIO CONVERTER
-    # =====================================================
-
-    def restore_audio_converter_focus(self):
-
-        if (
-            not hasattr(self, "audio_converter")
-            or self.audio_converter is None
-            or not self.audio_converter.isVisible()
-        ):
-
-            return
-
-        self.audio_converter.showNormal()
-
-        self.audio_converter.raise_()
-
-        self.audio_converter.activateWindow()
-
-        self.audio_converter.setFocus()
-
-        if hasattr(self.audio_converter, "url_input"):
-
-            self.audio_converter.url_input.setFocus(Qt.FocusReason.OtherFocusReason)
-
     def new_list(self):
 
         if not songs:
@@ -4441,7 +5079,19 @@ class MP3Order(QWidget):
 
     def push_undo(self):
 
-        undo_stack.append({"songs": songs.copy(), "edited": edited_tags.copy()})
+        # =====================================================
+        # НЕ ЗАПАЗВАМЕ ПРАЗЕН СПИСЪК ЗА CTRL + Z
+        # =====================================================
+
+        if not songs:
+            return
+
+        undo_stack.append(
+            {
+                "songs": songs.copy(),
+                "edited": edited_tags.copy(),
+            }
+        )
 
     def undo_last(self):
 
@@ -4450,13 +5100,113 @@ class MP3Order(QWidget):
 
         state = undo_stack.pop()
 
-        songs[:] = state["songs"]
+        # =====================================================
+        # АКО Е ИЗТРИТА САМО ЕДНА ПЕСЕН
+        # ВРЪЩАМЕ САМО НЕЯ
+        # =====================================================
 
-        edited_tags.clear()
+        if state.get("undo_type") == "delete_one":
 
-        edited_tags.update(state["edited"])
+            deleted_path = state["deleted_path"]
+
+            deleted_row = state["deleted_row"]
+
+            if deleted_path not in songs:
+
+                songs.insert(
+                    deleted_row,
+                    deleted_path,
+                )
+
+            edited_tags.clear()
+
+            edited_tags.update(state["edited"])
+
+        # =====================================================
+        # ВСИЧКИ ДРУГИ UNDO ДЕЙСТВИЯ
+        # ВРЪЩАТ ЦЯЛОТО ЗАПАЗЕНО СЪСТОЯНИЕ
+        # =====================================================
+
+        else:
+
+            songs[:] = state["songs"]
+
+            edited_tags.clear()
+
+            edited_tags.update(state["edited"])
+
+        # =====================================================
+        # ОБНОВЯВАМЕ ТАБЛИЦАТА
+        # =====================================================
 
         self.refresh()
+
+        # =====================================================
+        # ОПРЕДЕЛЯМЕ ТЕКСТА НА СЪОБЩЕНИЕТО
+        # =====================================================
+
+        if state.get("undo_type") == "delete_one":
+
+            deleted_path = state["deleted_path"]
+
+            title, artist, _ = song_info(deleted_path)
+
+            song_name = f"{artist} — {title}"
+
+            message_text = self.language_manager.get(
+                "undo_song_success",
+                song=song_name,
+            )
+
+        else:
+
+            message_text = self.language_manager.get("undo_success")
+
+        # =====================================================
+        # СЪОБЩЕНИЕ: ВЪЗСТАНОВЯВАНЕ
+        # =====================================================
+
+        QApplication.beep()
+
+        undo_message = QLabel(
+            message_text,
+            self,
+        )
+
+        undo_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        undo_message.setFixedSize(
+            800,
+            70,
+        )
+
+        undo_message.setStyleSheet("""
+            QLabel {
+                color: #22C55E;
+                background: #202020;
+                border: 2px solid #22C55E;
+                border-radius: 10px;
+                font-size: 18px;
+                font-weight: bold;
+                padding: 10px;
+            }
+        """)
+
+        # Центрираме съобщението отпред на главния прозорец
+        undo_message.move(
+            (self.width() - undo_message.width()) // 2,
+            (self.height() - undo_message.height()) // 2,
+        )
+
+        undo_message.raise_()
+
+        undo_message.show()
+
+        # Автоматично скриване след 3 секунди
+        QTimer.singleShot(
+            3000,
+            undo_message.deleteLater,
+        )
 
     def save_edited_cell(self, item):
 
@@ -4491,10 +5241,32 @@ class MP3Order(QWidget):
 
     def add_files(self):
 
+        from PySide6.QtCore import QSettings
+
+        # =================================================
+        # ПОСЛЕДНА ПАПКА ЗА „ДОБАВИ ПЕСНИ“
+        # =================================================
+
+        settings = QSettings(
+            "MP3_Order",
+            "MP3_Order_PRO",
+        )
+
+        last_folder = str(
+            settings.value(
+                "last_main_add_files_folder",
+                "",
+            )
+        )
+
+        if not last_folder or not os.path.isdir(last_folder):
+
+            last_folder = ""
+
         files, _ = QFileDialog.getOpenFileNames(
             self,
             self.language_manager.get("select_mp3_files"),
-            "",
+            last_folder,
             self.language_manager.get("mp3_files_filter"),
         )
 
@@ -4510,6 +5282,15 @@ class MP3Order(QWidget):
             return
 
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        # =================================================
+        # ЗАПАЗВАМЕ ПОСЛЕДНАТА ПАПКА
+        # =================================================
+
+        settings.setValue(
+            "last_main_add_files_folder",
+            os.path.dirname(files[0]),
+        )
 
         # ===== ПОКАЗВАМЕ ЛЕНТАТА ЗА ЗАРЕЖДАНЕ =====
 
@@ -4641,11 +5422,43 @@ class MP3Order(QWidget):
 
         QApplication.processEvents()
 
+        # =====================================================
+        # СКРИВАМЕ ИНДИКАТОРА СЛЕД 1 СЕКУНДА
+        # =====================================================
+
+        QTimer.singleShot(
+            1000,
+            self.loading_overlay.hide,
+        )
+
     def add_folder(self):
+
+        from PySide6.QtCore import QSettings
+
+        # =================================================
+        # ПОСЛЕДНА ПАПКА ЗА „ДОБАВИ ПАПКА“
+        # =================================================
+
+        settings = QSettings(
+            "MP3_Order",
+            "MP3_Order_PRO",
+        )
+
+        last_folder = str(
+            settings.value(
+                "last_main_add_folder",
+                "",
+            )
+        )
+
+        if not last_folder or not os.path.isdir(last_folder):
+
+            last_folder = ""
 
         folder = QFileDialog.getExistingDirectory(
             self,
             self.language_manager.get("choose_folder"),
+            last_folder,
         )
 
         # Натиснат е ESC или Cancel
@@ -4659,6 +5472,15 @@ class MP3Order(QWidget):
             return
 
         self.table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        # =================================================
+        # ЗАПАЗВАМЕ ПОСЛЕДНАТА ПАПКА
+        # =================================================
+
+        settings.setValue(
+            "last_main_add_folder",
+            folder,
+        )
 
         # ===== НАМИРАМЕ MP3 ФАЙЛОВЕТЕ =====
 
@@ -4820,6 +5642,23 @@ class MP3Order(QWidget):
         bar = self.table.verticalScrollBar()
         scroll = bar.value()
 
+        # ===== ЗАПОМНЯМЕ СИНЯТА ИЗБРАНА ПЕСЕН =====
+
+        selected_path = None
+
+        selected_row = self.table.currentRow()
+
+        if 0 <= selected_row < len(songs):
+
+            selected_item = self.table.item(
+                selected_row,
+                1,
+            )
+
+            if selected_item is not None:
+
+                selected_path = selected_item.data(Qt.ItemDataRole.UserRole)
+
         # ===== ЗАПОМНЯМЕ ТОЧНО КОЯ ПЕСЕН СВИРИ =====
 
         playing_path = None
@@ -4830,7 +5669,10 @@ class MP3Order(QWidget):
 
         # ===== ПРЕМЕСТВАМЕ ПЕСЕНТА В СПИСЪКА =====
 
-        songs.insert(to_row, songs.pop(from_row))
+        songs.insert(
+            to_row,
+            songs.pop(from_row),
+        )
 
         # ===== НАМИРАМЕ НОВИЯ РЕД НА СВИРЕЩАТА ПЕСЕН =====
 
@@ -4844,38 +5686,95 @@ class MP3Order(QWidget):
 
                 self.playing_index = -1
 
-            # ===== ОБНОВЯВАМЕ ТАБЛИЦАТА =====
+        # ===== НАМИРАМЕ НОВИЯ РЕД НА СИНЯТА ПЕСЕН =====
 
-            self.table.blockSignals(True)
+        selected_new_row = -1
 
-            self.table.setRowCount(0)
+        if selected_path is not None:
 
-            for i, path in enumerate(songs):
+            try:
 
-                title, artist, duration = song_info(path)
+                selected_new_row = songs.index(selected_path)
 
-                row = self.table.rowCount()
+            except ValueError:
 
-                self.table.insertRow(row)
+                selected_new_row = -1
 
-                self.table.setItem(row, 0, QTableWidgetItem(str(i + 1)))
+        # ===== ОБНОВЯВАМЕ ТАБЛИЦАТА =====
 
-                title_item = QTableWidgetItem(title)
-                title_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.table.blockSignals(True)
 
-                artist_item = QTableWidgetItem(artist)
-                artist_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.table.setRowCount(0)
 
-                title_item.setData(Qt.ItemDataRole.UserRole, path)
+        for i, path in enumerate(songs):
 
-                self.table.setItem(row, 1, title_item)
-                self.table.setItem(row, 2, artist_item)
-                self.table.setItem(row, 3, QTableWidgetItem(duration))
+            title, artist, duration = song_info(path)
 
-            self.table.setRowCount(max(50, len(songs)))
+            row = self.table.rowCount()
 
-            self.table.blockSignals(False)
-            self.highlight_playing_song()
+            self.table.insertRow(row)
+
+            self.table.setItem(
+                row,
+                0,
+                QTableWidgetItem(str(i + 1)),
+            )
+
+            title_item = QTableWidgetItem(title)
+
+            title_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            artist_item = QTableWidgetItem(artist)
+
+            artist_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            title_item.setData(
+                Qt.ItemDataRole.UserRole,
+                path,
+            )
+
+            self.table.setItem(
+                row,
+                1,
+                title_item,
+            )
+
+            self.table.setItem(
+                row,
+                2,
+                artist_item,
+            )
+
+            self.table.setItem(
+                row,
+                3,
+                QTableWidgetItem(duration),
+            )
+
+        self.table.setRowCount(max(50, len(songs)))
+
+        self.table.blockSignals(False)
+
+        # ===== ВЪЗСТАНОВЯВАМЕ ЗЕЛЕНИЯ МАРКЕР =====
+
+        self.highlight_playing_song()
+
+        # ===== ВЪЗСТАНОВЯВАМЕ СИНЯТА СЕЛЕКЦИЯ =====
+
+        if 0 <= selected_new_row < len(songs):
+
+            self.table.clearSelection()
+
+            self.table.setCurrentCell(
+                selected_new_row,
+                1,
+            )
+
+            self.table.selectRow(selected_new_row)
+
+            self.table.setFocus()
+
+        self.table.verticalScrollBar().setValue(scroll)
 
         # ===== НЕ ЗАПОЧВАМЕ НОВО ЗАРЕЖДАНЕ =====
 
@@ -4890,6 +5789,7 @@ class MP3Order(QWidget):
 
         self.table.setCurrentCell(row - 1, 1)
         self.table.selectRow(row - 1)
+        self.table.setFocus()
 
     def move_down(self):
 
@@ -4902,6 +5802,7 @@ class MP3Order(QWidget):
 
         self.table.setCurrentCell(row + 1, 1)
         self.table.selectRow(row + 1)
+        self.table.setFocus()
 
     def remove(self):
 
@@ -5060,8 +5961,39 @@ class MP3Order(QWidget):
 
         QApplication.beep()
 
-        # Запазваме състоянието за CTRL + Z
-        self.push_undo()
+        # =========================================================
+        # CTRL + Z
+        # АКО Е ИЗБРАНА САМО ЕДНА ПЕСЕН
+        # ЗАПАЗВАМЕ САМО НЕЯ
+        # =========================================================
+
+        if len(selected_rows) == 1:
+
+            deleted_row = selected_rows[0]
+
+            deleted_path = songs[deleted_row]
+
+            deleted_edited = edited_tags.get(deleted_path, {}).copy()
+
+            undo_stack.append(
+                {
+                    "undo_type": "delete_one",
+                    "songs_after": songs.copy(),
+                    "edited": edited_tags.copy(),
+                    "deleted_path": deleted_path,
+                    "deleted_row": deleted_row,
+                    "deleted_edited": deleted_edited,
+                }
+            )
+
+        # =========================================================
+        # АКО СА ИЗТРИТИ НЯКОЛКО ИЛИ ЦЕЛИЯТ СПИСЪК
+        # ЗАПАЗВАМЕ ЦЕЛИЯ СПИСЪК
+        # =========================================================
+
+        else:
+
+            self.push_undo()
 
         # =========================================================
         # ИЗТРИВАМЕ ОТЗАД НАПРЕД
@@ -5075,6 +6007,10 @@ class MP3Order(QWidget):
 
         # Обновяваме таблицата
         self.refresh()
+
+        # =========================================================
+        # АКО ОСТАВАТ ПЕСНИ
+        # =========================================================
 
         # =========================================================
         # АКО ОСТАВАТ ПЕСНИ
@@ -5108,6 +6044,17 @@ class MP3Order(QWidget):
             self.table.clearSelection()
             self.table.setCurrentCell(-1, -1)
             self.table.show()
+
+            self.table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+
+            self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+            self.table.setCurrentIndex(QModelIndex())
+
+            self.table.viewport().setAttribute(
+                Qt.WidgetAttribute.WA_Hover,
+                False,
+            )
 
             # Ако в момента няма реално свиреща песен,
             # тогава можем веднага да покажем празния списък.
@@ -5991,41 +6938,203 @@ class MP3Order(QWidget):
     def eventFilter(self, obj, event):
 
         # =========================================================
-        # ВРЪЩАНЕ НА MINIMIZED AUDIO CONVERTER ПРИ ALT + TAB
-        # =========================================================
-
-        if event.type() == QEvent.Type.WindowActivate:
-
-            if (
-                obj is self
-                and hasattr(self, "audio_converter")
-                and self.audio_converter is not None
-                and self.audio_converter.isVisible()
-                and self.audio_converter.isMinimized()
-            ):
-
-                QTimer.singleShot(
-                    0,
-                    self.restore_audio_converter_focus,
-                )
-
-                return False
-
-        # =========================================================
         # ALT / МЕНЮ
         # =========================================================
 
         # ALT -> превключва менюто „Файл“
         # ALT + SHIFT -> оставяме Windows да смени езика.
+
         if event.type() == event.Type.ShortcutOverride:
 
             if event.key() == Qt.Key.Key_Alt:
 
                 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
 
-                    return super().eventFilter(obj, event)
+                    self._alt_shift_used = True
+
+                    return super().eventFilter(
+                        obj,
+                        event,
+                    )
 
                 event.accept()
+
+                return True
+
+        # =========================================================
+        # ALT - ОСВОБОЖДАВАНЕ
+        # =========================================================
+
+        if event.type() == event.Type.KeyRelease:
+
+            # -----------------------------------------------------
+            # SHIFT
+            # -----------------------------------------------------
+
+            if event.key() == Qt.Key.Key_Shift:
+
+                if getattr(
+                    self,
+                    "_alt_pressed",
+                    False,
+                ):
+
+                    self._alt_shift_used = True
+
+                return super().eventFilter(
+                    obj,
+                    event,
+                )
+
+            # -----------------------------------------------------
+            # ALT
+            # -----------------------------------------------------
+
+            if event.key() == Qt.Key.Key_Alt:
+
+                # Проверяваме още веднъж дали Shift е бил натиснат
+
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+
+                    self._alt_shift_used = True
+
+                alt_combo_used = getattr(
+                    self,
+                    "_alt_combo_used",
+                    False,
+                )
+
+                alt_shift_used = getattr(
+                    self,
+                    "_alt_shift_used",
+                    False,
+                )
+
+                # =================================================
+                # ПРОВЕРЯВАМЕ ДАЛИ WINDOWS Е СМЕНИЛ ЕЗИКА
+                # =================================================
+
+                current_layout = ctypes.windll.user32.GetKeyboardLayout(0)
+
+                initial_layout = getattr(
+                    self,
+                    "_alt_initial_layout",
+                    current_layout,
+                )
+
+                layout_changed = current_layout != initial_layout
+
+                self._alt_pressed = False
+
+                self._alt_combo_used = False
+
+                self._alt_shift_used = False
+
+                # =================================================
+                # ALT + SHIFT
+                # =================================================
+
+                if alt_shift_used or layout_changed:
+
+                    self._alt_menu_pending = False
+
+                    return super().eventFilter(
+                        obj,
+                        event,
+                    )
+
+                # =================================================
+                # ALT + ДРУГ КЛАВИШ
+                # =================================================
+
+                if alt_combo_used:
+
+                    self._alt_menu_pending = False
+
+                    return True
+
+                # =================================================
+                # ИЗЧАКВАМЕ МАЛКО
+                # =================================================
+
+                self._alt_menu_pending = True
+
+                def finish_alt():
+
+                    # Отменено е от друга комбинация
+
+                    if not getattr(
+                        self,
+                        "_alt_menu_pending",
+                        False,
+                    ):
+
+                        return
+
+                    self._alt_menu_pending = False
+
+                    # Проверяваме отново езика след краткото
+                    # изчакване, защото Windows може да го смени
+                    # малко след KeyRelease на ALT.
+
+                    final_layout = ctypes.windll.user32.GetKeyboardLayout(0)
+
+                    initial = getattr(
+                        self,
+                        "_alt_initial_layout",
+                        final_layout,
+                    )
+
+                    if final_layout != initial:
+
+                        return
+
+                    # =================================================
+                    # ВТОРО КРАТКО ALT -> ЗАТВАРЯМЕ МЕНЮТО
+                    # =================================================
+
+                    active_action = self.menu_bar.activeAction()
+
+                    if active_action is not None:
+
+                        active_menu = active_action.menu()
+
+                        if (
+                            isinstance(
+                                active_menu,
+                                QMenu,
+                            )
+                            and active_menu.isVisible()
+                        ):
+
+                            active_menu.close()
+
+                            active_menu.hide()
+
+                            self.menu_bar.clearFocus()
+
+                            self.setFocus()
+
+                            self._file_menu_selected = False
+
+                            return
+
+                    # =================================================
+                    # ПЪРВО КРАТКО ALT -> ОТВАРЯМЕ „ФАЙЛ“
+                    # =================================================
+
+                    self._file_menu_selected = True
+
+                    self.menu_bar.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+                    if self.menu_bar.actions():
+
+                        self.menu_bar.setActiveAction(self.menu_bar.actions()[0])
+
+                QTimer.singleShot(
+                    150,
+                    finish_alt,
+                )
 
                 return True
 
@@ -6034,59 +7143,98 @@ class MP3Order(QWidget):
         # =========================================================
 
         if event.type() == event.Type.KeyPress:
+
+            # =====================================================
+            # ALT + F4 -> ЗАТВАРЯМЕ ПРОГРАМАТА
+            # =====================================================
+
+            if (
+                event.key() == Qt.Key.Key_F4
+                and event.modifiers() & Qt.KeyboardModifier.AltModifier
+            ):
+
+                self._alt_menu_pending = False
+
+                self._alt_combo_used = True
+
+                self.close()
+
+                return True
+
+            # =====================================================
+            # ALT
+            # =====================================================
+
+            if event.key() == Qt.Key.Key_Alt:
+
+                if event.isAutoRepeat():
+
+                    return True
+
+                # Запомняме езика преди ALT
+
+                self._alt_initial_layout = ctypes.windll.user32.GetKeyboardLayout(0)
+
+                self._alt_pressed = True
+
+                self._alt_combo_used = False
+
+                self._alt_shift_used = bool(
+                    event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+                )
+
+                self._alt_menu_pending = False
+
+                return True
+
+            # =====================================================
+            # SHIFT ДОКАТО ALT Е ЗАДЪРЖАН
+            # =====================================================
+
+            if event.key() == Qt.Key.Key_Shift and getattr(
+                self,
+                "_alt_pressed",
+                False,
+            ):
+
+                self._alt_shift_used = True
+
+                self._alt_combo_used = True
+
+                return super().eventFilter(
+                    obj,
+                    event,
+                )
+
+            # =====================================================
+            # ДРУГ КЛАВИШ ДОКАТО ALT Е ЗАДЪРЖАН
+            # =====================================================
+
+            if getattr(
+                self,
+                "_alt_pressed",
+                False,
+            ):
+
+                if event.modifiers() & Qt.KeyboardModifier.AltModifier:
+
+                    self._alt_combo_used = True
+
             # TAB -> ако списъкът е празен,
             # директно към „➕ Добави песни“
+
             if event.key() == Qt.Key.Key_Tab and not songs:
 
-                first_button = self.findChild(QPushButton, "addFilesButton")
+                first_button = self.findChild(
+                    QPushButton,
+                    "addFilesButton",
+                )
 
                 if first_button is not None:
 
                     first_button.setFocus(Qt.FocusReason.TabFocusReason)
 
                     return True
-
-            # -----------------------------------------------------
-            # ALT
-            # -----------------------------------------------------
-
-            if event.nativeScanCode() == 56:
-
-                # ALT + SHIFT -> оставяме Windows да смени езика
-                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-
-                    return super().eventFilter(obj, event)
-
-                # Второ натискане на ALT -> затваряме менюто
-                active_action = self.menu_bar.activeAction()
-
-                if active_action is not None:
-
-                    active_menu = active_action.menu()
-
-                    if isinstance(active_menu, QMenu):
-
-                        active_menu.close()
-                        active_menu.hide()
-
-                    self.menu_bar.clearFocus()
-
-                    self.setFocus()
-
-                    self._file_menu_selected = False
-
-                    return True
-
-                # Първо натискане на ALT -> активираме „Файл“
-                self._file_menu_selected = True
-
-                self.menu_bar.setFocus(Qt.FocusReason.ShortcutFocusReason)
-
-                if self.menu_bar.actions():
-
-                    self.menu_bar.setActiveAction(self.menu_bar.actions()[0])
-
-                return True
 
             # -----------------------------------------------------
             # ENTER
@@ -6101,35 +7249,57 @@ class MP3Order(QWidget):
 
                 # Ако менюто „Файл“ е отворено,
                 # оставяме QMenu само да обработи Enter.
-                if isinstance(widget, QMenu):
 
-                    return super().eventFilter(obj, event)
+                if isinstance(
+                    widget,
+                    QMenu,
+                ):
+
+                    return super().eventFilter(
+                        obj,
+                        event,
+                    )
 
                 # ENTER върху таблицата -> пуска избраната песен
+
                 if widget is self.table:
 
                     current_row = self.table.currentRow()
 
                     if 0 <= current_row < len(songs):
 
-                        play_button = self.findChild(QPushButton, "playButton")
+                        play_button = self.findChild(
+                            QPushButton,
+                            "playButton",
+                        )
 
                         if play_button is not None:
 
                             play_button.setDown(True)
 
-                            QTimer.singleShot(400, lambda: play_button.setDown(False))
+                            QTimer.singleShot(
+                                400,
+                                lambda: play_button.setDown(False),
+                            )
 
                         self.play_song()
 
                     return True
 
                 # ENTER върху бутон
-                if isinstance(widget, QPushButton):
+
+                if isinstance(
+                    widget,
+                    QPushButton,
+                ):
 
                     widget.click()
 
                     return True
+
+            # -----------------------------------------------------
+            # SPACE -> ПАУЗА / ПРОДЪЛЖИ
+            # -----------------------------------------------------
 
             # -----------------------------------------------------
             # SPACE -> ПАУЗА / ПРОДЪЛЖИ
@@ -6779,14 +7949,17 @@ if screen is not None:
 
 
 # =====================================================
-# ПОКАЗВАМЕ QT SPLASH ПРИ ВСЯКО СТАРТИРАНЕ
+# ПОКАЗВАМЕ QT SPLASH БЕЗ ДА ВЗЕМА ФОКУС
 # =====================================================
+
+splash.setAttribute(
+    Qt.WidgetAttribute.WA_ShowWithoutActivating,
+    True,
+)
 
 splash.show()
 
 splash.raise_()
-
-splash.activateWindow()
 
 app.processEvents()
 
@@ -6998,15 +8171,100 @@ def start_program():
 
             # =================================================
             # ПОКАЗВАМЕ ОСНОВНАТА ПРОГРАМА
+            # МАКСИМИЗИРАНА И С ФОКУС
             # =================================================
 
             window.show()
+
+            window.showMaximized()
+
+            window.setWindowState(Qt.WindowState.WindowMaximized)
 
             window.raise_()
 
             window.activateWindow()
 
+            if window.windowHandle() is not None:
+
+                window.windowHandle().requestActivate()
+
             app.processEvents()
+
+            # =================================================
+            # ЦЕНТРАЛЕН WINDOW FOCUS MANAGER
+            # ФОКУС ПРИ СТАРТИРАНЕ НА EXE
+            # =================================================
+
+            def focus_main_window():
+
+                first_button = window.findChild(
+                    QPushButton,
+                    "addFilesButton",
+                )
+
+                window.window_focus_manager.register_window(
+                    window,
+                    first_button,
+                    priority=0,
+                    maximize=True,
+                )
+
+                window.window_focus_manager.restore_window(
+                    window,
+                    first_button,
+                    maximize=True,
+                )
+
+            # =================================================
+            # ПЪРВИ ОПИТ
+            # =================================================
+
+            QTimer.singleShot(
+                100,
+                focus_main_window,
+            )
+
+            # =================================================
+            # ВТОРИ ОПИТ
+            # =================================================
+
+            QTimer.singleShot(
+                300,
+                focus_main_window,
+            )
+
+            # =================================================
+            # ТРЕТИ ОПИТ
+            # =================================================
+
+            QTimer.singleShot(
+                600,
+                focus_main_window,
+            )
+
+            # =================================================
+            # ПОЧИСТВАМЕ СЪСТОЯНИЕТО НА ПРАЗНАТА ТАБЛИЦА
+            # СЛЕД КАТО ПРОЗОРЕЦЪТ ВЕЧЕ Е ПОКАЗАН
+            # =================================================
+
+            if not songs:
+
+                window.table.clearSelection()
+
+                window.table.setCurrentCell(-1, -1)
+
+                window.table.setSelectionMode(
+                    QAbstractItemView.SelectionMode.NoSelection
+                )
+
+                window.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+                window.table.setCurrentIndex(QModelIndex())
+
+                window.table.viewport().setAttribute(
+                    Qt.WidgetAttribute.WA_Hover,
+                    False,
+                )
 
             # =================================================
             # УВЕДОМЯВАМЕ LAUNCHER-А
@@ -7032,6 +8290,15 @@ def start_program():
                 except Exception:
 
                     pass
+
+            # =================================================
+            # STARTUP-ЪТ Е НАПЪЛНО ПРИКЛЮЧИЛ
+            # ОТ ТОЗИ МОМЕНТ FOCUS MANAGER-ЪТ РАБОТИ
+            # =================================================
+
+            window._startup_complete = True
+
+            window.window_focus_manager.set_startup_complete()
 
     loading_timer = QTimer()
 

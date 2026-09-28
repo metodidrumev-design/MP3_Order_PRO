@@ -1168,22 +1168,51 @@ class AudioConverter(QDialog):
         )
 
     # =====================================================
-    # МИНИМИЗИРАНЕ НА ЦЯЛАТА ПРОГРАМА
+    # МИНИМИЗИРАНЕ НА AUDIO CONVERTER
     # =====================================================
 
     def changeEvent(self, event):
 
         super().changeEvent(event)
 
-        if event.type() == QEvent.Type.WindowStateChange:
+        if event.type() != QEvent.Type.WindowStateChange:
 
-            if self.isMinimized():
+            return
 
-                parent = self.parentWidget()
+        parent = self.parentWidget()
 
-                if parent is not None and not parent.isMinimized():
+        # =================================================
+        # ПРИ МИНИМИЗИРАНЕ
+        # ОСВОБОЖДАВАМЕ ОСНОВНИЯ ПРОЗОРЕЦ
+        # =================================================
 
-                    parent.showMinimized()
+        if self.isMinimized():
+
+            if parent is not None:
+
+                parent.setEnabled(True)
+
+                QTimer.singleShot(
+                    0,
+                    lambda: parent.setEnabled(True),
+                )
+
+                QTimer.singleShot(
+                    100,
+                    lambda: parent.setEnabled(True),
+                )
+
+            return
+
+        # =================================================
+        # ПРИ ВЪЗСТАНОВЯВАНЕ НЕ ПИПАМЕ ФОКУСА ТУК
+        #
+        # WindowFocusManager управлява:
+        # - foreground window
+        # - активния прозорец
+        # - клавиатурния фокус
+        # - url_input
+        # =================================================
 
     def find_executable(
         self,
@@ -1549,6 +1578,20 @@ class AudioConverter(QDialog):
                 background: transparent;
             }}
             """)
+
+        # =====================================================
+        # ЗАТВАРЯНЕ НА AUDIO CONVERTER
+        # =====================================================
+
+        def closeEvent(self, event):
+
+            parent = self.parentWidget()
+
+            if parent is not None:
+
+                parent.setEnabled(True)
+
+            event.accept()
 
     def center_window(
         self,

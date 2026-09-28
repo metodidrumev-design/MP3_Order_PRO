@@ -3680,6 +3680,32 @@ class AudioSplitter(QDialog):
 
     def load_mp3(self):
 
+        from PySide6.QtCore import QSettings
+
+        # =================================================
+        # ПОСЛЕДНА ПАПКА ЗА „ЗАРЕДИ MP3“
+        # =================================================
+
+        settings = QSettings(
+            "MP3_Order",
+            "MP3_Order_PRO",
+        )
+
+        last_folder = str(
+            settings.value(
+                "last_splitter_mp3_folder",
+                "",
+            )
+        )
+
+        if not last_folder or not os.path.isdir(last_folder):
+
+            last_folder = ""
+
+        # =================================================
+        # ПРОЗОРЕЦ ЗА ИЗБОР НА MP3 ФАЙЛ
+        # =================================================
+
         dialog = QFileDialog(
             self,
             language_manager.get("load_dialog_title"),
@@ -3690,6 +3716,14 @@ class AudioSplitter(QDialog):
         dialog.setNameFilter("MP3 files (*.mp3)")
 
         dialog.setWindowTitle(language_manager.get("load_dialog_title"))
+
+        # =================================================
+        # ОТВАРЯМЕ ПОСЛЕДНАТА ИЗПОЛЗВАНА ПАПКА
+        # =================================================
+
+        if last_folder:
+
+            dialog.setDirectory(last_folder)
 
         dialog.setFocus()
 
@@ -3704,6 +3738,15 @@ class AudioSplitter(QDialog):
             return
 
         file_path = selected_files[0]
+
+        # =================================================
+        # ЗАПАЗВАМЕ ПОСЛЕДНАТА ПАПКА
+        # =================================================
+
+        settings.setValue(
+            "last_splitter_mp3_folder",
+            os.path.dirname(file_path),
+        )
 
         # =================================================
         # АКО ВЕЧЕ ЗАРЕЖДАМЕ
@@ -3736,6 +3779,7 @@ class AudioSplitter(QDialog):
         # =================================================
 
         self.current_file = file_path
+
         self.analyzed_file = None
 
         self.current_duration = 0.0
@@ -3763,7 +3807,10 @@ class AudioSplitter(QDialog):
         zero_line = pg.InfiniteLine(
             pos=0,
             angle=0,
-            pen=pg.mkPen("#555555", width=1),
+            pen=pg.mkPen(
+                "#555555",
+                width=1,
+            ),
         )
 
         self.waveform_plot.addItem(zero_line)
