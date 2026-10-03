@@ -672,7 +672,9 @@ class ConverterWorker(QObject):
 
             raise RuntimeError(language_manager.get("converter_missing_yt_dlp"))
 
-        temp_dir = tempfile.mkdtemp(prefix="mp3_order_converter_")
+        temp_dir = tempfile.mkdtemp(
+            prefix="mp3_order_converter_",
+        )
 
         def progress_hook(data: dict[str, Any]):
 
@@ -715,21 +717,6 @@ class ConverterWorker(QObject):
                     )
                 )
 
-        ydl_opts: dict[str, Any] = {
-            "format": "bestaudio/best",
-            "outtmpl": os.path.join(
-                temp_dir,
-                "%(title)s.%(ext)s",
-            ),
-            "noplaylist": True,
-            "quiet": True,
-            "no_warnings": True,
-            "progress_hooks": [progress_hook],
-            "restrictfilenames": False,
-            "windowsfilenames": True,
-            "overwrites": True,
-        }
-
         self.status.emit(
             language_manager.get(
                 "converter_downloading",
@@ -737,63 +724,186 @@ class ConverterWorker(QObject):
             )
         )
 
+        # =====================================================
+        # НАДЕЖДНО СВАЛЯНЕ
+        # ПЪРВИ ОПИТ = НОРМАЛЕН КЛИЕНТ
+        # ВТОРИ ОПИТ = WEB_SAFARI
+        # =====================================================
+
+        download_configs: list[dict[str, Any]] = [
+            {
+                "format": "bestaudio/best",
+            },
+            {
+                "format": "bestaudio/best",
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["default", "web_safari"],
+                    },
+                },
+            },
+        ]
+
         try:
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            for attempt, extra_options in enumerate(
+                download_configs,
+                start=1,
+            ):
 
-                ydl.download([url])
+                self._check_stop()
 
-        except Exception:
+                # -------------------------------------------------
+                # При нов опит махаме остатъците от предишния
+                # -------------------------------------------------
 
-            if self.stop_event.is_set():
+                for filename in os.listdir(temp_dir):
 
-                raise StopRequested()
+                    full_path = os.path.join(
+                        temp_dir,
+                        filename,
+                    )
 
-            raise
+                    try:
 
-        files: list[str] = []
+                        if os.path.isfile(full_path):
 
-        for filename in os.listdir(temp_dir):
+                            os.remove(full_path)
 
-            full_path = os.path.join(
-                temp_dir,
-                filename,
-            )
+                    except OSError:
 
-            if os.path.isfile(full_path):
+                        pass
 
-                files.append(full_path)
+                ydl_opts: dict[str, Any] = {
+                    **extra_options,
+                    "outtmpl": os.path.join(
+                        temp_dir,
+                        "%(title)s.%(ext)s",
+                    ),
+                    "noplaylist": True,
+                    "quiet": True,
+                    "no_warnings": True,
+                    "progress_hooks": [
+                        progress_hook,
+                    ],
+                    "restrictfilenames": False,
+                    "windowsfilenames": True,
+                    "overwrites": True,
+                    # -------------------------------------------------
+                    # RETRY ЗА МРЕЖОВИ ПРОБЛЕМИ
+                    # -------------------------------------------------
+                    "retries": 10,
+                    "fragment_retries": 20,
+                    "extractor_retries": 5,
+                    "file_access_retries": 5,
+                    # -------------------------------------------------
+                    # Продължаване от прекъснато сваляне
+                    # -------------------------------------------------
+                    "continuedl": True,
+                }
 
-        if not files:
+                if attempt > 1:
+
+                    self.status.emit(
+                        f"Повторен опит за сваляне ({attempt}/{len(download_configs)})..."
+                    )
+
+                try:
+
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+
+                        result = ydl.download([url])
+
+                    # -------------------------------------------------
+                    # Проверяваме действително създадения файл
+                    # -------------------------------------------------
+
+                    if result not in (0, None):
+
+                        raise RuntimeError(f"yt-dlp приключи с код {result}")
+
+                    files: list[str] = []
+
+                    for filename in os.listdir(temp_dir):
+
+                        full_path = os.path.join(
+                            temp_dir,
+                            filename,
+                        )
+
+                        if not os.path.isfile(full_path):
+
+                            continue
+
+                        if filename.endswith(".part"):
+
+                            continue
+
+                        if filename.endswith(".ytdl"):
+
+                            continue
+
+                        files.append(full_path)
+
+                    if files:
+
+                        downloaded_file = max(
+                            files,
+                            key=os.path.getmtime,
+                        )
+
+                        final_file = os.path.join(
+                            tempfile.gettempdir(),
+                            os.path.basename(downloaded_file),
+                        )
+
+                        shutil.copy2(
+                            downloaded_file,
+                            final_file,
+                        )
+
+                        self.progress.emit(
+                            min(
+                                100,
+                                int(base_progress + file_progress_size * 0.60),
+                            )
+                        )
+
+                        return final_file
+
+                    raise RuntimeError(
+                        language_manager.get("converter_no_downloaded_file")
+                    )
+
+                except Exception:
+
+                    if self.stop_event.is_set():
+
+                        raise StopRequested()
+
+                    # -------------------------------------------------
+                    # Ако има още опит → пробваме отново
+                    # -------------------------------------------------
+
+                    if attempt < len(download_configs):
+
+                        continue
+
+                    # -------------------------------------------------
+                    # Последен опит:
+                    # запазваме ИСТИНСКАТА грешка от yt-dlp
+                    # -------------------------------------------------
+
+                    raise
+
+        finally:
 
             shutil.rmtree(
                 temp_dir,
                 ignore_errors=True,
             )
 
-            raise RuntimeError(language_manager.get("converter_no_downloaded_file"))
-
-        downloaded_file = max(
-            files,
-            key=os.path.getmtime,
-        )
-
-        final_file = os.path.join(
-            tempfile.gettempdir(),
-            os.path.basename(downloaded_file),
-        )
-
-        shutil.copy2(
-            downloaded_file,
-            final_file,
-        )
-
-        shutil.rmtree(
-            temp_dir,
-            ignore_errors=True,
-        )
-
-        return final_file
+        raise RuntimeError("Неочакван край на свалянето.")
 
     def convert_file(
         self,

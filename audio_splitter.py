@@ -1862,7 +1862,7 @@ class AudioSplitter(QDialog):
             True,
         )
 
-        from PySide6.QtCore import QSettings
+        from PySide6.QtCore import QByteArray, QSettings
         from themes import set_theme, get_theme
 
         settings = QSettings("MP3_Order", "MP3_Order_PRO")
@@ -1899,7 +1899,21 @@ class AudioSplitter(QDialog):
 
         self.setMinimumSize(1100, 700)
 
-        self.resize(1100, 750)
+        saved_geometry_value = settings.value(
+            "audio_splitter/geometry",
+            None,
+        )
+
+        if (
+            isinstance(saved_geometry_value, QByteArray)
+            and not saved_geometry_value.isEmpty()
+        ):
+
+            self.restoreGeometry(saved_geometry_value)
+
+        else:
+
+            self.resize(1100, 750)
 
         # =====================================================
         # ВЪЗСТАНОВЯВАМЕ ПОСЛЕДНАТА ПОЗИЦИЯ НА ПРОЗОРЕЦА
@@ -3849,6 +3863,12 @@ class AudioSplitter(QDialog):
     # =====================================================
 
     def play_audio(self):
+
+        print(">>> PLAY_AUDIO ИЗВИКАH")
+
+        import traceback
+
+        traceback.print_stack(limit=8)
 
         if not self.current_file:
 
@@ -6373,6 +6393,12 @@ class AudioSplitter(QDialog):
 
     def toggle_play_pause(self):
 
+        print("===== SPACE НАТИСНАТ =====")
+        print("audio_playing =", self.audio_playing)
+        print("is_paused =", self.is_paused)
+        print("FOCUS WIDGET =", self.focusWidget())
+        print("PLAY FOCUS POLICY =", self.play_button.focusPolicy())
+
         if self.vlc_player is None:
 
             return
@@ -6380,10 +6406,12 @@ class AudioSplitter(QDialog):
         try:
 
             # =================================================
-            # ПРОВЕРЯВАМЕ ДИРЕКТНО СЪСТОЯНИЕТО НА VLC
+            # ПЕСЕНТА ВЪРВИ → ПАУЗА
             # =================================================
 
-            if self.vlc_player.is_playing():
+            if self.audio_playing:
+
+                print(">>> SPACE ОТИВА КЪМ PAUSE")
 
                 self.pause_button.setDown(True)
 
@@ -6412,13 +6440,17 @@ class AudioSplitter(QDialog):
 
                 self.is_paused = True
 
+                self.position_timer.stop()
+
                 return
 
             # =================================================
-            # АКО Е НА ПАУЗА → ПРОДЪЛЖАВАМЕ
+            # ПЕСЕНТА Е НА ПАУЗА → ПРОДЪЛЖАВАМЕ
             # =================================================
 
             if self.is_paused:
+
+                print(">>> SPACE ОТИВА КЪМ RESUME")
 
                 self.play_button.setDown(True)
 
@@ -6440,8 +6472,11 @@ class AudioSplitter(QDialog):
                         self.play_button.setStyleSheet(""),
                     ),
                 )
+                print("RESUME VLC TIME BEFORE =", self.vlc_player.get_time())
 
-                self.vlc_player.play()
+                self.vlc_player.set_pause(0)
+
+                print("RESUME VLC TIME AFTER =", self.vlc_player.get_time())
 
                 self.audio_playing = True
 
@@ -8260,6 +8295,19 @@ class AudioSplitter(QDialog):
         self.window_settings.setValue(
             "splitter_window_y",
             normal_geometry.y(),
+        )
+
+        self.window_settings.sync()
+
+        # =================================================
+        # ЗАПАЗВАМЕ ПОЗИЦИЯТА И РАЗМЕРА НА ПРОЗОРЕЦА
+        # =================================================
+
+        saved_geometry = self.saveGeometry()
+
+        self.window_settings.setValue(
+            "audio_splitter/geometry",
+            saved_geometry,
         )
 
         self.window_settings.sync()

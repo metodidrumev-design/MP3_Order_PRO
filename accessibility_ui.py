@@ -538,6 +538,16 @@ class AccessibilityUI(QObject):
                     f"Бутон: {text}.",
                 )
 
+                if button.objectName() in (
+                    "playButton",
+                    "pauseButton",
+                    "stopButton",
+                ):
+
+                    button.setFocusPolicy(
+                        Qt.FocusPolicy.NoFocus,
+                    )
+
         # -----------------------------------------------------
         # PROGRESS
         # -----------------------------------------------------

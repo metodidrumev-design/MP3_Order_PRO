@@ -4861,12 +4861,43 @@ class MP3Order(QWidget):
     def open_audio_converter(self):
 
         # =====================================================
+        # АКО CONVERTER-А ВЕЧЕ Е ОТВОРЕН
+        # НЕ СЪЗДАВАМЕ НОВ ПРОЗОРЕЦ
+        # =====================================================
+
+        if (
+            hasattr(self, "audio_converter")
+            and self.audio_converter is not None
+            and self.audio_converter.isVisible()
+        ):
+
+            if self.audio_converter.isMinimized():
+
+                self.audio_converter.showNormal()
+
+            self.audio_converter.raise_()
+
+            self.audio_converter.activateWindow()
+
+            if self.audio_converter.windowHandle() is not None:
+
+                self.audio_converter.windowHandle().requestActivate()
+
+            self.audio_converter.url_input.setFocus(
+                Qt.FocusReason.OtherFocusReason,
+            )
+
+            return
+
+        # =====================================================
         # СЪЗДАВАМЕ AUDIO CONVERTER
         # =====================================================
 
         self.audio_converter = AudioConverter(self)
 
-        self.audio_converter.setWindowModality(Qt.WindowModality.NonModal)
+        self.audio_converter.setWindowModality(
+            Qt.WindowModality.NonModal,
+        )
 
         # =====================================================
         # РЕГИСТРИРАМЕ CONVERTER-А В ЦЕНТРАЛНИЯ
@@ -4898,7 +4929,9 @@ class MP3Order(QWidget):
         # ПЪРВОНАЧАЛЕН ФОКУС В URL ПОЛЕТО
         # =====================================================
 
-        self.audio_converter.url_input.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.audio_converter.url_input.setFocus(
+            Qt.FocusReason.OtherFocusReason,
+        )
 
     # =====================================================
     # ВЪЗСТАНОВЯВАНЕ НА AUDIO SPLITTER
